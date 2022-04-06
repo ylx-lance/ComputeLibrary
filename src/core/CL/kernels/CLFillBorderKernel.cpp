@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,29 +21,25 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/CL/kernels/CLFillBorderKernel.h"
+#include "src/core/CL/kernels/CLFillBorderKernel.h"
 
 #include "arm_compute/core/CL/CLHelpers.h"
 #include "arm_compute/core/CL/CLKernelLibrary.h"
 #include "arm_compute/core/CL/ICLTensor.h"
 #include "arm_compute/core/CL/OpenCL.h"
-#include "arm_compute/core/Error.h"
 #include "arm_compute/core/TensorInfo.h"
-#include "arm_compute/core/Types.h"
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/Validate.h"
-#include "arm_compute/core/Window.h"
+#include "src/core/helpers/WindowHelpers.h"
+#include "support/Cast.h"
+#include "support/StringSupport.h"
 
-#include <cstdint>
-#include <set>
-#include <sstream>
-#include <string>
-
-using namespace arm_compute;
-
+namespace arm_compute
+{
 CLFillBorderKernel::CLFillBorderKernel()
     : ICLKernel(), _tensor(nullptr)
 {
+    _type = CLKernelType::ELEMENTWISE;
 }
 
 bool CLFillBorderKernel::is_parallelisable() const
@@ -61,10 +57,22 @@ void CLFillBorderKernel::set_constant_border(unsigned int idx, const PixelValue 
 
 void CLFillBorderKernel::configure(ICLTensor *tensor, BorderSize border_size, BorderMode border_mode, const PixelValue &constant_border_value)
 {
-    ARM_COMPUTE_ERROR_ON(tensor == nullptr);
-    ARM_COMPUTE_ERROR_ON(tensor->info()->num_channels() != 1);
+    configure(CLKernelLibrary::get().get_compile_context(), tensor, border_size, border_mode, constant_border_value);
+}
 
-    border_size.limit(tensor->info()->padding());
+void CLFillBorderKernel::configure(const CLCompileContext &compile_context, ICLTensor *tensor, BorderSize border_size, BorderMode border_mode, const PixelValue &constant_border_value)
+{
+    _tensor = tensor;
+    configure(compile_context, tensor->info(), border_size, border_mode, constant_border_value);
+}
+
+void CLFillBorderKernel::configure(const CLCompileContext &compile_context, ITensorInfo *tensor, BorderSize border_size, BorderMode border_mode, const PixelValue &constant_border_value)
+{
+    ARM_COMPUTE_ERROR_ON(tensor == nullptr);
+    ARM_COMPUTE_ERROR_ON(tensor->num_channels() != 1);
+    auto padding_info = get_padding_info({ tensor });
+
+    border_size.limit(tensor->padding());
 
     // If there is no border: early exit
     if(border_size.empty() || border_mode == BorderMode::UNDEFINED)
@@ -75,28 +83,27 @@ void CLFillBorderKernel::configure(ICLTensor *tensor, BorderSize border_size, Bo
     // Select appropriate kernel
     std::string kernel_name = "fill_image_borders_" + lower_string(string_from_border_mode(border_mode));
 
-    const DataType dt = tensor->info()->data_type();
+    const DataType dt = tensor->data_type();
 
     // Define build options
     CLBuildOptions build_opts;
-    build_opts.add_option("-DDATA_TYPE=" + get_underlying_cl_type_from_data_type(dt));
+    build_opts.add_option("-DDATA_TYPE=" + get_cl_type_from_data_type(dt));
     build_opts.add_option("-DBORDER_SIZE_TOP=" + support::cpp11::to_string(border_size.top));
     build_opts.add_option("-DBORDER_SIZE_BOTTOM=" + support::cpp11::to_string(border_size.bottom));
     build_opts.add_option("-DBORDER_SIZE_LEFT=" + support::cpp11::to_string(border_size.left));
     build_opts.add_option("-DBORDER_SIZE_RIGHT=" + support::cpp11::to_string(border_size.right));
 
     // Create kernel
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(kernel_name, build_opts.options()));
-    _tensor = tensor;
+    _kernel = create_kernel(compile_context, kernel_name, build_opts.options());
 
     // Create static kernel arguments
-    const unsigned int valid_width  = tensor->info()->valid_region().shape[0];
-    const unsigned int valid_height = tensor->info()->valid_region().shape[1];
+    const unsigned int valid_width  = tensor->valid_region().shape[0];
+    const unsigned int valid_height = tensor->valid_region().shape[1];
     const cl_int2      valid_region_coords =
     {
         {
-            static_cast<cl_int>(tensor->info()->valid_region().anchor[0]),
-            static_cast<cl_int>(tensor->info()->valid_region().anchor[1]),
+            static_cast<cl_int>(tensor->valid_region().anchor[0]),
+            static_cast<cl_int>(tensor->valid_region().anchor[1]),
         }
     };
     const unsigned int total_valid_width = border_size.left + valid_width + border_size.right;
@@ -115,6 +122,7 @@ void CLFillBorderKernel::configure(ICLTensor *tensor, BorderSize border_size, Bo
                 set_constant_border<uint8_t>(idx, constant_border_value);
                 break;
             case DataType::S8:
+            case DataType::QASYMM8_SIGNED:
                 set_constant_border<int8_t>(idx, constant_border_value);
                 break;
             case DataType::U16:
@@ -147,7 +155,7 @@ void CLFillBorderKernel::configure(ICLTensor *tensor, BorderSize border_size, Bo
     Window win;
     win.set(Window::DimX, Window::Dimension(0, total_valid_width + valid_height));
     win.set(Window::DimY, Window::Dimension(0, 1, 1));
-    win.use_tensor_dimensions(tensor->info()->tensor_shape(), Window::DimZ);
+    win.use_tensor_dimensions(tensor->tensor_shape(), Window::DimZ);
     ICLKernel::configure_internal(win);
 
     // Set config_id for enabling LWS tuning
@@ -155,11 +163,37 @@ void CLFillBorderKernel::configure(ICLTensor *tensor, BorderSize border_size, Bo
     _config_id += "_";
     _config_id += lower_string(string_from_data_type(dt));
     _config_id += "_";
-    _config_id += support::cpp11::to_string(tensor->info()->dimension(0));
+    _config_id += support::cpp11::to_string(tensor->dimension(0));
     _config_id += "_";
-    _config_id += support::cpp11::to_string(tensor->info()->dimension(1));
+    _config_id += support::cpp11::to_string(tensor->dimension(1));
     _config_id += "_";
     _config_id += lower_string(string_from_border_mode(border_mode));
+    ARM_COMPUTE_ERROR_ON(has_padding_changed(padding_info));
+}
+
+void CLFillBorderKernel::run_op(ITensorPack &tensors, const Window &window, cl::CommandQueue &queue)
+{
+    // Border mode undefined or border width == 0
+    if(_kernel() == nullptr)
+    {
+        return;
+    }
+
+    const auto tensor = utils::cast::polymorphic_downcast<const ICLTensor *>(tensors.get_const_tensor(TensorType::ACL_SRC));
+
+    ARM_COMPUTE_ERROR_ON_UNCONFIGURED_KERNEL(this);
+    ARM_COMPUTE_ERROR_ON_MISMATCHING_WINDOWS(ICLKernel::window(), window);
+
+    Window collapsed = window.collapse_if_possible(ICLKernel::window(), Window::DimZ);
+    Window slice     = collapsed.first_slice_window_3D();
+
+    do
+    {
+        unsigned int idx = 0;
+        add_3D_tensor_argument(idx, tensor, slice);
+        enqueue(queue, *this, slice, lws_hint());
+    }
+    while(collapsed.slide_window_slice_3D(slice));
 }
 
 void CLFillBorderKernel::run(const Window &window, cl::CommandQueue &queue)
@@ -180,7 +214,8 @@ void CLFillBorderKernel::run(const Window &window, cl::CommandQueue &queue)
     {
         unsigned int idx = 0;
         add_3D_tensor_argument(idx, _tensor, slice);
-        enqueue(queue, *this, slice, cl::NullRange);
+        enqueue(queue, *this, slice, lws_hint());
     }
     while(collapsed.slide_window_slice_3D(slice));
 }
+} // namespace arm_compute

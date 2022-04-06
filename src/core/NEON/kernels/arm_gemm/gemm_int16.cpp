@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,17 +28,17 @@
 #include "gemm_implementation.hpp"
 #include "gemm_interleaved.hpp"
 
-#include "kernels/a64_gemm_s16_12x8.hpp"
+#include "kernels/a64_gemm_s16_8x12.hpp"
 
 namespace arm_gemm {
 
 static const GemmImplementation<int16_t, int32_t> gemm_s16_methods[] = {
 {
     GemmMethod::GEMM_INTERLEAVED,
-    "gemm_s16_12x8",
+    "a64_gemm_s16_8x12",
     nullptr,
     nullptr,
-    [](const GemmArgs<int32_t> &args) { return new GemmInterleaved<gemm_s16_12x8, int16_t, int32_t>(args); }
+    [](const GemmArgs &args) { return new GemmInterleaved<cls_a64_gemm_s16_8x12, int16_t, int32_t>(args); }
 },
 {
     GemmMethod::DEFAULT,
@@ -55,9 +55,9 @@ const GemmImplementation<int16_t, int32_t> *gemm_implementation_list<int16_t, in
 }
 
 /* Explicitly instantiate the external functions for these types. */
-template UniqueGemmCommon<int16_t, int32_t> gemm<int16_t, int32_t, Nothing>(const GemmArgs<int32_t> &args, const Nothing &);
-template KernelDescription get_gemm_method<int16_t, int32_t, Nothing>(const GemmArgs<int32_t> &args, const Nothing &);
-template std::vector<KernelDescription> get_compatible_kernels<int16_t, int32_t, Nothing> (const GemmArgs<int32_t> &args, const Nothing &);
+template UniqueGemmCommon<int16_t, int32_t> gemm<int16_t, int32_t, Nothing>(const GemmArgs &args, const Nothing &);
+template KernelDescription get_gemm_method<int16_t, int32_t, Nothing>(const GemmArgs &args, const Nothing &);
+template std::vector<KernelDescription> get_compatible_kernels<int16_t, int32_t, Nothing> (const GemmArgs &args, const Nothing &);
 
 } // namespace arm_gemm
 

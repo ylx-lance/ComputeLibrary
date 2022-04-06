@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,47 +24,52 @@
 #include "arm_compute/runtime/NEON/functions/NEGEMMLowpOutputStage.h"
 
 #include "arm_compute/core/ITensor.h"
-#include "arm_compute/core/NEON/kernels/NEGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPointKernel.h"
-#include "arm_compute/core/NEON/kernels/NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPointKernel.h"
-#include "arm_compute/core/NEON/kernels/NEGEMMLowpQuantizeDownInt32ToUint8ScaleKernel.h"
-#include "support/ToolchainSupport.h"
+#include "arm_compute/core/Validate.h"
+#include "src/cpu/operators/CpuGemmLowpOutputStage.h"
 
 namespace arm_compute
 {
-void NEGEMMLowpQuantizeDownInt32ToUint8Scale::configure(const ITensor *input, const ITensor *bias, ITensor *output, int result_offset, int result_mult_int, int result_shift, int min, int max)
+struct NEGEMMLowpOutputStage::Impl
 {
-    auto k = arm_compute::support::cpp14::make_unique<NEGEMMLowpQuantizeDownInt32ToUint8ScaleKernel>();
-    k->configure(input, bias, output, result_offset, result_mult_int, result_shift, min, max);
-    _kernel = std::move(k);
+    const ITensor                               *src{ nullptr };
+    const ITensor                               *bias{ nullptr };
+    ITensor                                     *dst{ nullptr };
+    ITensorPack                                  run_pack{};
+    std::unique_ptr<cpu::CpuGemmLowpOutputStage> op{ nullptr };
+};
+
+NEGEMMLowpOutputStage::NEGEMMLowpOutputStage()
+    : _impl(std::make_unique<Impl>())
+{
+}
+NEGEMMLowpOutputStage::~NEGEMMLowpOutputStage() = default;
+
+void NEGEMMLowpOutputStage::configure(const ITensor *input, const ITensor *bias, ITensor *output, const GEMMLowpOutputStageInfo &info)
+{
+    // Perform validate step
+    ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
+    ARM_COMPUTE_ERROR_THROW_ON(NEGEMMLowpOutputStage::validate(input->info(), bias != nullptr ? bias->info() : nullptr, output->info(), info));
+    _impl->src  = input;
+    _impl->bias = bias;
+    _impl->dst  = output;
+    _impl->op   = std::make_unique<cpu::CpuGemmLowpOutputStage>();
+    _impl->op->configure(input->info(), (bias == nullptr) ? nullptr : bias->info(), output->info(), info);
+
+    _impl->run_pack =
+    {
+        { TensorType::ACL_SRC, _impl->src },
+        { TensorType::ACL_BIAS, _impl->bias },
+        { TensorType::ACL_DST, _impl->dst }
+    };
 }
 
-Status NEGEMMLowpQuantizeDownInt32ToUint8Scale::validate(const ITensorInfo *input, const ITensorInfo *bias, const ITensorInfo *output, int min, int max)
+Status NEGEMMLowpOutputStage::validate(const ITensorInfo *input, const ITensorInfo *bias, const ITensorInfo *output, const GEMMLowpOutputStageInfo &info)
 {
-    return NEGEMMLowpQuantizeDownInt32ToUint8ScaleKernel::validate(input, bias, output, min, max);
+    return cpu::CpuGemmLowpOutputStage::validate(input, bias, output, info);
 }
 
-void NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint::configure(const ITensor *input, const ITensor *bias, ITensor *output, int result_fixedpoint_multiplier, int result_shift,
-                                                                    int result_offset_after_shift, int min, int max)
+void NEGEMMLowpOutputStage::run()
 {
-    auto k = arm_compute::support::cpp14::make_unique<NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPointKernel>();
-    k->configure(input, bias, output, result_fixedpoint_multiplier, result_shift, result_offset_after_shift, min, max);
-    _kernel = std::move(k);
-}
-
-Status NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint::validate(const ITensorInfo *input, const ITensorInfo *bias, const ITensorInfo *output, int min, int max)
-{
-    return NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPointKernel::validate(input, bias, output, min, max);
-}
-
-void NEGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPoint::configure(const ITensor *input, const ITensor *bias, ITensor *output, int result_fixedpoint_multiplier, int result_shift, int min, int max)
-{
-    auto k = arm_compute::support::cpp14::make_unique<NEGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPointKernel>();
-    k->configure(input, bias, output, result_fixedpoint_multiplier, result_shift, min, max);
-    _kernel = std::move(k);
-}
-
-Status NEGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPoint::validate(const ITensorInfo *input, const ITensorInfo *bias, const ITensorInfo *output, int min, int max)
-{
-    return NEGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPointKernel::validate(input, bias, output, min, max);
+    _impl->op->run(_impl->run_pack);
 }
 } // namespace arm_compute

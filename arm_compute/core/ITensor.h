@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_ITENSOR_H__
-#define __ARM_COMPUTE_ITENSOR_H__
+#ifndef ARM_COMPUTE_ITENSOR_H
+#define ARM_COMPUTE_ITENSOR_H
 
 #include "arm_compute/core/ITensorInfo.h"
 
@@ -32,7 +32,7 @@ namespace arm_compute
 {
 class Coordinates;
 
-/** Interface for NEON tensor */
+/** Interface for CPU tensor */
 class ITensor
 {
 public:
@@ -90,6 +90,8 @@ public:
     bool is_used() const;
     /** Marks a tensor as unused */
     void mark_as_unused() const;
+    /** Marks a tensor as used */
+    void mark_as_used() const;
 
 private:
     mutable bool _is_used = { true }; /**< Flag that marks if the tensor is used or not */
@@ -97,4 +99,4 @@ private:
 
 using IImage = ITensor;
 }
-#endif /*__ARM_COMPUTE_ITENSOR_H__ */
+#endif /*ARM_COMPUTE_ITENSOR_H */

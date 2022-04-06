@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,6 +25,8 @@
 #include "arm_compute/runtime/NEON/functions/NEFullyConnectedLayer.h"
 #include "arm_compute/runtime/Tensor.h"
 #include "arm_compute/runtime/TensorAllocator.h"
+#include "src/core/helpers/MemoryHelpers.h"
+#include "src/cpu/operators/CpuFullyConnected.h"
 #include "tests/NEON/Accessor.h"
 #include "tests/PaddingCalculator.h"
 #include "tests/datasets/FullyConnectedLayerDataset.h"
@@ -53,6 +55,7 @@ constexpr float                           tolerance_num_f16 = 0.07f;            
 
 /** Tolerance for quantized asymmetric operations */
 constexpr AbsoluteTolerance<uint8_t> tolerance_qasymm8(1);
+constexpr AbsoluteTolerance<int8_t>  tolerance_qasymm8_signed(1);
 
 /** CNN data types */
 const auto CNNDataTypes = framework::dataset::make("DataType",
@@ -64,59 +67,176 @@ const auto CNNDataTypes = framework::dataset::make("DataType",
 });
 
 const auto FullyConnectedParameters = combine(framework::dataset::make("TransposeWeights", { false, true }), framework::dataset::make("ReshapeWeights", { false, true }));
+
+const auto QuantizationData = framework::dataset::make("QuantizationInfo",
+{
+    QuantizationInfo(1.f / 256.f, 10),
+    QuantizationInfo(1.1f, 10),
+});
+const auto EmptyActivationFunctionDataset = framework::dataset::make("ActivationInfo",
+{
+    ActivationLayerInfo(),
+});
+const auto ActivationFunctionsDataset = framework::dataset::make("ActivationInfo",
+{
+    ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU),
+    ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::BOUNDED_RELU, 0.5f),
+    ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LU_BOUNDED_RELU, 0.75f, 0.25f),
+    ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::TANH),
+});
+
+const auto ActivationFunctionsQuantizedDataset = framework::dataset::make("ActivationInfo",
+{
+    ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU),
+    ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::BOUNDED_RELU, 0.5f),
+    ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LU_BOUNDED_RELU, 0.75f, 0.25f),
+});
 } // namespace
 
 TEST_SUITE(NEON)
 TEST_SUITE(FullyConnectedLayer)
 
-DATA_TEST_CASE(Configuration, framework::DatasetMode::ALL, combine(combine(datasets::SmallFullyConnectedLayerDataset(),
-                                                                           FullyConnectedParameters),
-                                                                   CNNDataTypes),
-               src_shape, weights_shape, bias_shape, dst_shape, transpose_weights, reshape_weights, data_type)
+/** Test case for memory injection in @ref cpu::CpuFullyConnected.
+ *
+ * Configure the operator once and inject memory at run-time in multiple executions.
+ *
+ * Checks performed in order:
+ * - Both runs compute the same output
+ */
+TEST_CASE(MemoryInjection, framework::DatasetMode::ALL)
 {
-    const DataType         bias_data_type    = is_data_type_quantized_asymmetric(data_type) ? DataType::S32 : data_type;
-    const QuantizationInfo quantization_info = is_data_type_quantized_asymmetric(data_type) ? QuantizationInfo(2.f / 255.f, 127) : QuantizationInfo();
+    auto       fc          = std::make_unique<cpu::CpuFullyConnected>();
+    const auto src_info    = TensorInfo(TensorShape(8U), 1, DataType::F32, DataLayout::NHWC);
+    const auto weight_info = TensorInfo(TensorShape(8U, 4U), 1, DataType::F32, DataLayout::NHWC);
+    const auto bias_info   = TensorInfo(TensorShape(4U), 1, DataType::F32, DataLayout::NHWC);
+    auto       dst_info    = TensorInfo(TensorShape(4U), 1, DataType::F32, DataLayout::NHWC);
+    const auto fc_info     = FullyConnectedLayerInfo{};
+    fc->configure(&src_info, &weight_info, &bias_info, &dst_info, fc_info);
 
-    TensorShape ws(weights_shape);
+    // telhs are newly created every call of this lambda function
+    auto src    = create_tensor<Tensor>(src_info);
+    auto weight = create_tensor<Tensor>(weight_info);
+    auto bias   = create_tensor<Tensor>(bias_info);
+    src.allocator()->allocate();
+    weight.allocator()->allocate();
+    bias.allocator()->allocate();
 
-    // Transpose weights if not done in the function
-    if(!reshape_weights || !transpose_weights)
+    ITensorPack run_pack{ { TensorType::ACL_SRC_0, &src }, { TensorType::ACL_SRC_1, &weight }, { TensorType::ACL_SRC_2, &bias } };
+    ITensorPack prep_pack{ { TensorType::ACL_SRC_1, &weight }, { TensorType::ACL_SRC_2, &bias } };
+
+    auto mg = MemoryGroup{};
+    auto ws = manage_workspace<Tensor>(fc->workspace(), mg, run_pack, prep_pack);
+
+    auto run_conv = [&]() -> Tensor
     {
-        const size_t shape_x = ws.x();
-        ws.set(0, ws.y());
-        ws.set(1, shape_x);
+        auto dst = create_tensor<Tensor>(dst_info);
+        dst.allocator()->allocate();
+        run_pack.add_tensor(TensorType::ACL_DST, &dst);
+
+        library->fill_tensor_value(Accessor(src), 1.f);
+        library->fill_tensor_value(Accessor(weight), 2.f);
+        library->fill_tensor_value(Accessor(bias), 3.f);
+        // This operator is configured once and captured by this lambda.
+        fc->prepare(prep_pack);
+        fc->run(run_pack);
+        return dst;
+    };
+    auto result_0 = run_conv();
+    auto result_1 = run_conv();
+    for(size_t i = 0; i < result_0.info()->tensor_shape().total_size(); ++i)
+    {
+        ARM_COMPUTE_EXPECT(((float *)result_0.buffer())[i] == ((float *)result_1.buffer())[i], framework::LogLevel::ERRORS);
     }
+}
 
-    // Create tensors
-    Tensor src     = create_tensor<Tensor>(src_shape, data_type, 1, quantization_info);
-    Tensor weights = create_tensor<Tensor>(ws, data_type, 1, quantization_info);
-    Tensor bias    = create_tensor<Tensor>(bias_shape, bias_data_type, 1, quantization_info);
-    Tensor dst     = create_tensor<Tensor>(dst_shape, data_type, 1, quantization_info);
+/** Test case for memory injection in @ref NEFullyConnectedLayer.
+ *
+ * Make sure @ref NEFullyConnectedLayer still works through injecting the memory at configure time using the old API.
+ *
+ * Checks performed in order:
+ * - Both runs compute the same output
+ */
+TEST_CASE(MultipleExecutionWithConfigure, framework::DatasetMode::ALL)
+{
+    auto       fc          = std::make_unique<NEFullyConnectedLayer>();
+    const auto src_info    = TensorInfo(TensorShape(8U), 1, DataType::F32, DataLayout::NHWC);
+    const auto weight_info = TensorInfo(TensorShape(8U, 4U), 1, DataType::F32, DataLayout::NHWC);
+    const auto bias_info   = TensorInfo(TensorShape(4U), 1, DataType::F32, DataLayout::NHWC);
+    auto       dst_info    = TensorInfo(TensorShape(4U), 1, DataType::F32, DataLayout::NHWC);
+    const auto fc_info     = FullyConnectedLayerInfo{};
+    auto       run_conv    = [&]()
+    {
+        auto src    = create_tensor<Tensor>(src_info);
+        auto weight = create_tensor<Tensor>(weight_info);
+        auto bias   = create_tensor<Tensor>(bias_info);
+        auto dst    = create_tensor<Tensor>(dst_info);
+        fc->configure(&src, &weight, &bias, &dst, fc_info);
+        src.allocator()->allocate();
+        weight.allocator()->allocate();
+        bias.allocator()->allocate();
+        dst.allocator()->allocate();
+        library->fill_tensor_value(Accessor(src), 1.f);
+        library->fill_tensor_value(Accessor(weight), 2.f);
+        library->fill_tensor_value(Accessor(bias), 3.f);
+        fc->run();
+        return dst;
+    };
+    auto result_0 = run_conv();
+    auto result_1 = run_conv();
+    for(size_t i = 0; i < result_0.info()->tensor_shape().total_size(); ++i)
+    {
+        ARM_COMPUTE_EXPECT(((float *)result_0.buffer())[i] == ((float *)result_1.buffer())[i], framework::LogLevel::ERRORS);
+    }
+}
 
-    ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(weights.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(bias.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+/** Unit test for @ref cpu::CpuFullyConnected with quantized multipler > 1
+ *
+ * Tests output correctness.
+ */
+TEST_CASE(Quant8_Signed_Mult_gt_1, framework::DatasetMode::ALL)
+{
+    auto       fc          = std::make_unique<cpu::CpuFullyConnected>();
+    const auto src_info    = TensorInfo(TensorShape(1U, 3U), 1, DataType::QASYMM8_SIGNED, QuantizationInfo(0.5f, -1));
+    const auto weight_info = TensorInfo(TensorShape(1U), 1, DataType::QASYMM8_SIGNED, QuantizationInfo(0.5, -8));
+    const auto bias_info   = TensorInfo(TensorShape(1U), 1, DataType::S32);
+    auto       dst_info    = TensorInfo(TensorShape(1U, 3U), 1, DataType::QASYMM8_SIGNED, QuantizationInfo(0.1f, 0));
+    const auto fc_info     = FullyConnectedLayerInfo{};
+    fc->configure(&src_info, &weight_info, &bias_info, &dst_info, fc_info);
 
-    // Create Fully Connected layer info
-    FullyConnectedLayerInfo fc_info;
-    fc_info.transpose_weights    = transpose_weights;
-    fc_info.are_weights_reshaped = !reshape_weights;
+    // telhs are newly created every call of this lambda function
+    auto src    = create_tensor<Tensor>(src_info);
+    auto weight = create_tensor<Tensor>(weight_info);
+    auto bias   = create_tensor<Tensor>(bias_info);
+    auto dst    = create_tensor<Tensor>(dst_info);
+    src.allocator()->allocate();
+    weight.allocator()->allocate();
+    bias.allocator()->allocate();
+    dst.allocator()->allocate();
 
-    const QuantizationInfo src_quantization_info     = src.info()->quantization_info();
-    const QuantizationInfo weights_quantization_info = weights.info()->quantization_info();
+    ITensorPack run_pack{ { TensorType::ACL_SRC_0, &src }, { TensorType::ACL_SRC_1, &weight }, { TensorType::ACL_SRC_2, &bias }, { TensorType::ACL_DST, &dst } };
+    ITensorPack prep_pack{ { TensorType::ACL_SRC_1, &weight }, { TensorType::ACL_SRC_2, &bias } };
 
-    // Create and configure function.
-    NEFullyConnectedLayer fc;
-    fc.configure(&src, &weights, &bias, &dst, fc_info);
+    auto mg = MemoryGroup{};
+    auto ws = manage_workspace<Tensor>(fc->workspace(), mg, run_pack, prep_pack);
 
-    // Validate valid region
-    const ValidRegion dst_valid_region = shape_to_valid_region(dst_shape);
-    validate(dst.info()->valid_region(), dst_valid_region);
+    // Initialize input values
+    const std::vector<int8_t>  src_values    = { 3, 63, 31 };
+    const std::vector<int8_t>  weight_values = { -4 };
+    const std::vector<int32_t> bias_values   = { 16 };
+    const std::vector<int32_t> expected      = { 80, 127, 127 };
+    library->fill_static_values(Accessor(src), src_values);
+    library->fill_static_values(Accessor(weight), weight_values);
+    library->fill_static_values(Accessor(bias), bias_values);
 
-    // Validate QuantizationInfo
-    ARM_COMPUTE_EXPECT(src.info()->quantization_info() == src_quantization_info, framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(weights.info()->quantization_info() == weights_quantization_info, framework::LogLevel::ERRORS);
+    // Run FC layer
+    fc->prepare(prep_pack);
+    fc->run(run_pack);
+
+    auto dst_ptr = reinterpret_cast<int8_t *>(dst.buffer());
+    for(size_t i = 0; i < dst.info()->tensor_shape().total_size(); ++i)
+    {
+        ARM_COMPUTE_EXPECT(dst_ptr[i] == expected[i], framework::LogLevel::ERRORS);
+    }
 }
 
 // *INDENT-OFF*
@@ -168,20 +288,37 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(zip(zip(zip(
 
 template <typename T>
 using NEFullyConnectedLayerFixture = FullyConnectedLayerValidationFixture<Tensor, Accessor, NEFullyConnectedLayer, T>;
+template <typename T>
+using NEFullyConnectedLayerMixedDataLayoutFixture = FullyConnectedLayerValidationFixture<Tensor, Accessor, NEFullyConnectedLayer, T, true>;
+template <typename T>
+using NEFullyConnectedLayerDynamicWeightsFixture = FullyConnectedWithDynamicWeightsFixture<Tensor, Accessor, NEFullyConnectedLayer, T>;
+template <typename T>
+using NEFullyConnectedLayerDynamicBiasFixture = FullyConnectedWithDynamicBiasFixture<Tensor, Accessor, NEFullyConnectedLayer, T>;
 
 TEST_SUITE(Float)
 #ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
 TEST_SUITE(FP16)
-FIXTURE_DATA_TEST_CASE(RunSmall, NEFullyConnectedLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::SmallFullyConnectedLayerDataset(),
+FIXTURE_DATA_TEST_CASE(RunSmall, NEFullyConnectedLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::SmallFullyConnectedLayerDataset(),
                                                                                                                         FullyConnectedParameters),
-                                                                                                                framework::dataset::make("DataType", DataType::F16)))
+                                                                                                                        framework::dataset::make("DataType", DataType::F16)),
+                                                                                                                EmptyActivationFunctionDataset))
 {
     // Validate output
     validate(Accessor(_target), _reference, rel_tolerance_f16, tolerance_num_f16, abs_tolerance_f16);
 }
-FIXTURE_DATA_TEST_CASE(RunLarge, NEFullyConnectedLayerFixture<half>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::LargeFullyConnectedLayerDataset(),
+FIXTURE_DATA_TEST_CASE(RunWithActivation, NEFullyConnectedLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(
+                           combine(datasets::FullyConnectedLayerWithActivationDataset(),
+                                   FullyConnectedParameters),
+                           framework::dataset::make("DataType", DataType::F16)),
+                       ActivationFunctionsDataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, rel_tolerance_f16, tolerance_num_f16, abs_tolerance_f16);
+}
+FIXTURE_DATA_TEST_CASE(RunLarge, NEFullyConnectedLayerFixture<half>, framework::DatasetMode::NIGHTLY, combine(combine(combine(datasets::LargeFullyConnectedLayerDataset(),
                                                                                                                       FullyConnectedParameters),
-                                                                                                              framework::dataset::make("DataType", DataType::F16)))
+                                                                                                                      framework::dataset::make("DataType", DataType::F16)),
+                                                                                                              EmptyActivationFunctionDataset))
 {
     // Validate output
     validate(Accessor(_target), _reference, rel_tolerance_f16, tolerance_num_f16, abs_tolerance_f16);
@@ -190,49 +327,147 @@ TEST_SUITE_END()
 #endif /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
 
 TEST_SUITE(FP32)
-FIXTURE_DATA_TEST_CASE(RunSmall, NEFullyConnectedLayerFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::SmallFullyConnectedLayerDataset(), FullyConnectedParameters),
-                                                                                                                 framework::dataset::make("DataType", DataType::F32)))
+FIXTURE_DATA_TEST_CASE(RunSmall, NEFullyConnectedLayerFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::SmallFullyConnectedLayerDataset(), FullyConnectedParameters),
+                                                                                                                 framework::dataset::make("DataType", DataType::F32)),
+                                                                                                                 EmptyActivationFunctionDataset))
 {
     // Validate output
     validate(Accessor(_target), _reference, rel_tolerance_f32, 0, abs_tolerance_f32);
 }
-FIXTURE_DATA_TEST_CASE(RunLarge, NEFullyConnectedLayerFixture<float>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::LargeFullyConnectedLayerDataset(), FullyConnectedParameters),
-                                                                                                               framework::dataset::make("DataType", DataType::F32)))
+FIXTURE_DATA_TEST_CASE(RunMixedDataLayout, NEFullyConnectedLayerMixedDataLayoutFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(combine(combine(combine(
+                           framework::dataset::make("Input", TensorShape(9U, 5U, 7U)),
+                           framework::dataset::make("Weights", TensorShape(315U, 271U))),
+                       framework::dataset::make("Biases", TensorShape(271U))),
+                       framework::dataset::make("Output", TensorShape(271U))),
+                       FullyConnectedParameters),
+                       framework::dataset::make("DataType", DataType::F32)),
+                       framework::dataset::make("ActivationInfo", ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU))))
 {
     // Validate output
     validate(Accessor(_target), _reference, rel_tolerance_f32, 0, abs_tolerance_f32);
+}
+FIXTURE_DATA_TEST_CASE(RunWithActivation, NEFullyConnectedLayerFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(
+                           combine(datasets::FullyConnectedLayerWithActivationDataset(),
+                                   FullyConnectedParameters),
+                           framework::dataset::make("DataType", DataType::F32)),
+                       ActivationFunctionsDataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, rel_tolerance_f32, 0, abs_tolerance_f32);
+}
+FIXTURE_DATA_TEST_CASE(RunLarge, NEFullyConnectedLayerFixture<float>, framework::DatasetMode::NIGHTLY, combine(combine(combine(datasets::LargeFullyConnectedLayerDataset(), FullyConnectedParameters),
+                                                                                                                       framework::dataset::make("DataType", DataType::F32)),
+                                                                                                               EmptyActivationFunctionDataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, rel_tolerance_f32, 0, abs_tolerance_f32);
+}
+FIXTURE_DATA_TEST_CASE(RunDynamicWeights, NEFullyConnectedLayerDynamicWeightsFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::SmallFullyConnectedLayerDataset(),
+                       framework::dataset::make("DataType", DataType::F32)),
+                       framework::dataset::make("ActivationInfo", ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU))))
+{
 }
 TEST_SUITE_END()
 TEST_SUITE_END()
 
 template <typename T>
 using NEFullyConnectedLayerQuantizedFixture = FullyConnectedLayerValidationQuantizedFixture<Tensor, Accessor, NEFullyConnectedLayer, T>;
+template <typename T>
+using NEFullyConnectedLayerQuantizedMixedDataLayoutFixture = FullyConnectedLayerValidationQuantizedFixture<Tensor, Accessor, NEFullyConnectedLayer, T, true>;
 
 TEST_SUITE(Quantized)
 TEST_SUITE(QASYMM8)
-FIXTURE_DATA_TEST_CASE(RunSmall, NEFullyConnectedLayerQuantizedFixture<uint8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(
+FIXTURE_DATA_TEST_CASE(RunSmall, NEFullyConnectedLayerQuantizedFixture<uint8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(
                            combine(datasets::SmallFullyConnectedLayerDataset(),
                                    FullyConnectedParameters),
                            framework::dataset::make("DataType", DataType::QASYMM8)),
-                       framework::dataset::make("QuantizationInfo", { QuantizationInfo(1.f / 255.f, 10) })))
+                       QuantizationData),
+                       EmptyActivationFunctionDataset))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_qasymm8);
 }
-FIXTURE_DATA_TEST_CASE(RunLarge, NEFullyConnectedLayerQuantizedFixture<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(
+FIXTURE_DATA_TEST_CASE(RunMixedDataLayout, NEFullyConnectedLayerQuantizedMixedDataLayoutFixture<uint8_t>, framework::DatasetMode::PRECOMMIT,
+                       combine(combine(combine(combine(combine(combine(combine(
+                                                                           framework::dataset::make("Input", TensorShape(9U, 5U, 7U)),
+                                                                           framework::dataset::make("Weights", TensorShape(315U, 271U))),
+                                                                       framework::dataset::make("Biases", TensorShape(271U))),
+                                                               framework::dataset::make("Output", TensorShape(271U))),
+                                                       FullyConnectedParameters),
+                                               framework::dataset::make("DataType", DataType::QASYMM8)),
+                                       QuantizationData),
+                               framework::dataset::make("ActivationInfo", ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU))))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_qasymm8);
+}
+FIXTURE_DATA_TEST_CASE(RunWithActivation, NEFullyConnectedLayerQuantizedFixture<uint8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(
+                           combine(datasets::FullyConnectedLayerWithActivationDataset(),
+                                   FullyConnectedParameters),
+                           framework::dataset::make("DataType", DataType::QASYMM8)),
+                       QuantizationData),
+                       ActivationFunctionsQuantizedDataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_qasymm8);
+}
+
+FIXTURE_DATA_TEST_CASE(RunLarge, NEFullyConnectedLayerQuantizedFixture<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(
                            combine(datasets::LargeFullyConnectedLayerDataset(),
                                    FullyConnectedParameters),
                            framework::dataset::make("DataType", DataType::QASYMM8)),
-                       framework::dataset::make("QuantizationInfo", { QuantizationInfo(1.f / 256.f, 10) })))
+                       QuantizationData),
+                       EmptyActivationFunctionDataset))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_qasymm8);
 }
-TEST_SUITE_END()
-TEST_SUITE_END()
 
+FIXTURE_DATA_TEST_CASE(RunDynamicBias, NEFullyConnectedLayerDynamicBiasFixture<uint8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::SmallFullyConnectedLayerDataset(),
+                       framework::dataset::make("DataType", DataType::QASYMM8)),
+                       framework::dataset::make("ActivationInfo", ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU))))
+{
+}
 TEST_SUITE_END()
-TEST_SUITE_END()
+TEST_SUITE(QASYMM8_SIGNED)
+FIXTURE_DATA_TEST_CASE(RunSmall, NEFullyConnectedLayerQuantizedFixture<int8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(
+                           combine(datasets::SmallFullyConnectedLayerDataset(),
+                                   FullyConnectedParameters),
+                           framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
+                       QuantizationData),
+                       EmptyActivationFunctionDataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_qasymm8_signed);
+}
+FIXTURE_DATA_TEST_CASE(RunMixedDataLayout, NEFullyConnectedLayerQuantizedMixedDataLayoutFixture<int8_t>, framework::DatasetMode::PRECOMMIT,
+                       combine(combine(combine(combine(combine(combine(combine(
+                                                                           framework::dataset::make("Input", TensorShape(9U, 5U, 7U)),
+                                                                           framework::dataset::make("Weights", TensorShape(315U, 271U))),
+                                                                       framework::dataset::make("Biases", TensorShape(271U))),
+                                                               framework::dataset::make("Output", TensorShape(271U))),
+                                                       FullyConnectedParameters),
+                                               framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
+                                       QuantizationData),
+                               framework::dataset::make("ActivationInfo", ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU))))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_qasymm8);
+}
+FIXTURE_DATA_TEST_CASE(RunWithActivation, NEFullyConnectedLayerQuantizedFixture<int8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(
+                           combine(datasets::FullyConnectedLayerWithActivationDataset(),
+                                   FullyConnectedParameters),
+                           framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
+                       QuantizationData),
+                       ActivationFunctionsQuantizedDataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_qasymm8_signed);
+}
+TEST_SUITE_END() // QASYMM8_SIGNED
+TEST_SUITE_END() // Quantized
+TEST_SUITE_END() // FullyConnectedLayer
+TEST_SUITE_END() // NEON
 } // namespace validation
 } // namespace test
 } // namespace arm_compute

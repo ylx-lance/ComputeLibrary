@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,11 +21,9 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLDIRECTCONVOLUTIONLAYER_H__
-#define __ARM_COMPUTE_CLDIRECTCONVOLUTIONLAYER_H__
+#ifndef ARM_COMPUTE_CLDIRECTCONVOLUTIONLAYER_H
+#define ARM_COMPUTE_CLDIRECTCONVOLUTIONLAYER_H
 
-#include "arm_compute/core/CL/kernels/CLDirectConvolutionLayerKernel.h"
-#include "arm_compute/core/CL/kernels/CLFillBorderKernel.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/CL/functions/CLActivationLayer.h"
 #include "arm_compute/runtime/IFunction.h"
@@ -34,36 +32,77 @@
 
 namespace arm_compute
 {
+class CLCompileContext;
 class ICLTensor;
+class ITensorInfo;
 
 /** Basic function to execute direct convolution function:
  */
 class CLDirectConvolutionLayer : public IFunction
 {
 public:
-    /** Default constructor */
+    /** Constructor */
     CLDirectConvolutionLayer();
+    /** Destructor */
+    ~CLDirectConvolutionLayer();
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    CLDirectConvolutionLayer(const CLDirectConvolutionLayer &) = delete;
+    /** Default move constructor */
+    CLDirectConvolutionLayer(CLDirectConvolutionLayer &&);
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    CLDirectConvolutionLayer &operator=(const CLDirectConvolutionLayer &) = delete;
+    /** Default move assignment operator */
+    CLDirectConvolutionLayer &operator=(CLDirectConvolutionLayer &&);
     /** Set the input and output tensors.
+     *
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src0           |src1           |src2   |dst            |
+     * |:--------------|:--------------|:------|:--------------|
+     * |F16            |F16            |F16    |F16            |
+     * |F32            |F32            |F32    |F32            |
+     * |QASYMM8        |QASYMM8        |S32    |QASYMM8        |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED |S32    |QASYMM8_SIGNED |
      *
      * @param[in]  input     Source tensor. 3 lower dimensions represent a single input [width, height, IFM],
      *                       while every optional dimension from 4 and above represent a batch of inputs.
-     *                       Data types supported: QASYMM8/F16/F32.
+     *                       Data types supported: QASYMM8_SIGNED/QASYMM8/F16/F32.
      * @param[in]  weights   Weights tensor. Weights are 4D tensor with dimensions [kernel_x, kernel_y, IFM, OFM]. Data type supported:Same as @p input.
      * @param[in]  biases    Biases tensor. Shared biases supported. Biases are 1D tensor with dimensions [OFM].
-     *                       Data type supported: Should match @p input data type, except for input of QASYMM8 type where biases should be of S32 type.
+     *                       Data type supported: Should match @p input data type, except for input of QASYMM8 and QASYMM8_SIGNED type where biases should be of S32 type.
      * @param[out] output    Destination tensor. 3 lower dimensions represent a single output [width, height, OFM], while the rest represent batch of outputs.
      *                       Data types supported: Same as @p input.
      * @param[in]  conv_info Contains padding and stride information described in @ref PadStrideInfo.
      * @param[in]  act_info  (Optional) Activation layer information in case of a fused activation.
      */
     void configure(ICLTensor *input, const ICLTensor *weights, const ICLTensor *biases, ICLTensor *output, const PadStrideInfo &conv_info, const ActivationLayerInfo &act_info = ActivationLayerInfo());
+    /** Set the input and output tensors.
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  input           Source tensor. 3 lower dimensions represent a single input [width, height, IFM],
+     *                             while every optional dimension from 4 and above represent a batch of inputs.
+     *                             Data types supported: QASYMM8_SIGNED/QASYMM8/F16/F32.
+     * @param[in]  weights         Weights tensor. Weights are 4D tensor with dimensions [kernel_x, kernel_y, IFM, OFM]. Data type supported:Same as @p input.
+     * @param[in]  biases          Biases tensor. Shared biases supported. Biases are 1D tensor with dimensions [OFM].
+     *                             Data type supported: Should match @p input data type, except for input of QASYMM8 and QASYMM8_SIGNED type where biases should be of S32 type.
+     * @param[out] output          Destination tensor. 3 lower dimensions represent a single output [width, height, OFM], while the rest represent batch of outputs.
+     *                             Data types supported: Same as @p input.
+     * @param[in]  conv_info       Contains padding and stride information described in @ref PadStrideInfo.
+     * @param[in]  act_info        (Optional) Activation layer information in case of a fused activation.
+     */
+    void configure(const CLCompileContext &compile_context, ICLTensor *input, const ICLTensor *weights, const ICLTensor *biases, ICLTensor *output, const PadStrideInfo &conv_info,
+                   const ActivationLayerInfo &act_info = ActivationLayerInfo());
     /** Static function to check if given info will lead to a valid configuration of @ref CLDirectConvolutionLayer
      *
      * @param[in] input     Source tensor. 3 lower dimensions represent a single input [width, height, IFM],
      *                      while every optional dimension from 4 and above represent a batch of inputs.
-     *                      Data types supported: QASYMM8/F16/F32.
+     *                      Data types supported: QASYMM8_SIGNED/QASYMM8/F16/F32.
      * @param[in] weights   Weights tensor. Weights are 4D tensor with dimensions [kernel_x, kernel_y, IFM, OFM]. Data type supported:Same as @p input.
-     * @param[in] biases    Biases tensor. Shared biases supported. Biases are 1D tensor with dimensions [OFM]. Data type supported:Same as @p input.
+     * @param[in] biases    Biases tensor. Shared biases supported. Biases are 1D tensor with dimensions [OFM].
+     *                      Data type supported: Should match @p input data type, except for input of QASYMM8 and QASYMM8_SIGNED type where biases should be of S32 type.
      * @param[in] output    Destination tensor. 3 lower dimensions represent a single output [width, height, OFM], while the rest represent batch of outputs.
      *                      Data types supported: Same as @p input.
      * @param[in] conv_info Contains padding and stride information described in @ref PadStrideInfo.
@@ -78,11 +117,8 @@ public:
     void run() override;
 
 private:
-    CLDirectConvolutionLayerKernel _direct_conv_kernel;
-    CLFillBorderKernel             _input_border_handler;
-    CLActivationLayer              _activationlayer_function;
-
-    bool _is_activationlayer_enabled;
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 };
 }
-#endif /* __ARM_COMPUTE_CLDIRECTCONVOLUTIONLAYER_H__ */
+#endif /* ARM_COMPUTE_CLDIRECTCONVOLUTIONLAYER_H */

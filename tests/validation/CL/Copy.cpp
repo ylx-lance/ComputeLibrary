@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -48,15 +48,13 @@ TEST_SUITE(Copy)
 DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(
                framework::dataset::make("InputInfo", { TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::U8),  // Invalid data type combination
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::U8),  // Mismatching shapes
-                                                       TensorInfo(TensorShape(14U, 13U, 2U), 1, DataType::U8),  // Window shrink
-                                                       TensorInfo(TensorShape(32U, 32U, 2U), 1, DataType::U8),
+                                                       TensorInfo(TensorShape(14U, 13U, 2U), 1, DataType::U8),
                                                      }),
                framework::dataset::make("OutputInfo",{ TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::S16),
                                                        TensorInfo(TensorShape(32U, 11U, 2U), 1, DataType::U8),
                                                        TensorInfo(TensorShape(14U, 13U, 2U), 1, DataType::U8),
-                                                       TensorInfo(TensorShape(32U, 32U, 2U), 1, DataType::U8),
                                                      })),
-               framework::dataset::make("Expected", { false, false, false, true })),
+               framework::dataset::make("Expected", { false, false, true })),
                input_info, output_info, expected)
 {
     ARM_COMPUTE_EXPECT(bool(CLCopy::validate(&input_info.clone()->set_is_resizable(false), &output_info.clone()->set_is_resizable(false))) == expected, framework::LogLevel::ERRORS);
@@ -67,6 +65,7 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(
 template <typename T>
 using CLCopyFixture = CopyFixture<CLTensor, CLAccessor, CLCopy, T>;
 
+TEST_SUITE(FixedSeed)
 TEST_SUITE(F32)
 FIXTURE_DATA_TEST_CASE(RunSmall, CLCopyFixture<float>, framework::DatasetMode::ALL, combine(zip(datasets::SmallShapes(), datasets::SmallShapes()), framework::dataset::make("DataType",
                                                                                             DataType::F32)))
@@ -93,6 +92,7 @@ FIXTURE_DATA_TEST_CASE(RunSmall, CLCopyFixture<uint16_t>, framework::DatasetMode
     validate(CLAccessor(_target), _reference);
 }
 TEST_SUITE_END() // U16
+TEST_SUITE_END() // FixedSeed
 
 TEST_SUITE_END() // Copy
 TEST_SUITE_END() // CL

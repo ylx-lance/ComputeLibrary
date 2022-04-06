@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2020, 2022 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,6 +25,8 @@
 #include "arm_compute/runtime/NEON/functions/NEFloor.h"
 #include "arm_compute/runtime/Tensor.h"
 #include "arm_compute/runtime/TensorAllocator.h"
+#include "src/common/cpuinfo/CpuIsaInfo.h"
+#include "src/cpu/kernels/CpuFloorKernel.h"
 #include "tests/NEON/Accessor.h"
 #include "tests/PaddingCalculator.h"
 #include "tests/datasets/ShapeDatasets.h"
@@ -47,22 +49,44 @@ TEST_SUITE(Floor)
 // clang-format off
 DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(
         framework::dataset::make("InputInfo", { TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::U8),  // Wrong data type
-                                                TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32), // Window shrink
                                                 TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32), // Invalid data type combination
                                                 TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32), // Mismatching shapes
                                                 TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),
         }),
         framework::dataset::make("OutputInfo",{ TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),
-                                                TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32),
                                                 TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F16),
                                                 TensorInfo(TensorShape(48U, 11U, 2U), 1, DataType::F32),
                                                 TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),
         })),
-                                                          framework::dataset::make("Expected", { false, false, false, false, true })),
+                                                          framework::dataset::make("Expected", { false, false, false, true })),
                input_info, output_info, expected)
 {
     const Status status = NEFloor::validate(&input_info.clone()->set_is_resizable(false), &output_info.clone()->set_is_resizable(false));
     ARM_COMPUTE_EXPECT(bool(status) == expected, framework::LogLevel::ERRORS);
+}
+
+
+DATA_TEST_CASE(KernelSelection, framework::DatasetMode::ALL,
+               combine(framework::dataset::make("CpuExt", std::string("NEON")),
+                       framework::dataset::make("DataType", { DataType::F32,
+                                                              DataType::F16,
+                                                            })),
+               cpu_ext, data_type)
+{
+    using namespace cpu::kernels;
+
+    cpuinfo::CpuIsaInfo cpu_isa{};
+    cpu_isa.neon = (cpu_ext == "NEON");
+    cpu_isa.fp16 = (data_type == DataType::F16);
+
+    const auto *selected_impl = CpuFloorKernel::get_implementation(DataTypeISASelectorData{data_type, cpu_isa}, cpu::KernelSelectionType::Preferred);
+
+    ARM_COMPUTE_ERROR_ON_NULLPTR(selected_impl);
+
+    std::string expected = lower_string(cpu_ext) + "_" + cpu_impl_dt(data_type) + "_floor";
+    std::string actual   = selected_impl->name;
+
+    ARM_COMPUTE_EXPECT_EQUAL(expected, actual, framework::LogLevel::ERRORS);
 }
 // clang-format on
 // *INDENT-ON*

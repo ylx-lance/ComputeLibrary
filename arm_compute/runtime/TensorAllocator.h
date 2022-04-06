@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,11 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TENSORALLOCATOR_H__
-#define __ARM_COMPUTE_TENSORALLOCATOR_H__
-
+#ifndef ARM_COMPUTE_TENSORALLOCATOR_H
+#define ARM_COMPUTE_TENSORALLOCATOR_H
 #include "arm_compute/runtime/ITensorAllocator.h"
+
 #include "arm_compute/runtime/Memory.h"
+#include "arm_compute/runtime/MemoryGroup.h"
 
 #include <cstdint>
 #include <memory>
@@ -33,12 +34,9 @@
 
 namespace arm_compute
 {
+// Forward declaration
 class Coordinates;
 class TensorInfo;
-class Tensor;
-template <typename>
-class MemoryGroupBase;
-using MemoryGroup = MemoryGroupBase<Tensor>;
 
 /** Basic implementation of a CPU memory tensor allocator. */
 class TensorAllocator : public ITensorAllocator
@@ -46,9 +44,9 @@ class TensorAllocator : public ITensorAllocator
 public:
     /** Default constructor.
      *
-     * @param[in] owner Owner of the tensor allocator.
+     * @param[in] owner Memory manageable owner
      */
-    TensorAllocator(Tensor *owner = nullptr);
+    TensorAllocator(IMemoryManageable *owner);
     /** Default destructor */
     ~TensorAllocator();
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -111,7 +109,7 @@ public:
      *
      * @param[in] associated_memory_group Memory group to associate the tensor with
      */
-    void set_associated_memory_group(MemoryGroup *associated_memory_group);
+    void set_associated_memory_group(IMemoryGroup *associated_memory_group);
 
 protected:
     /** No-op for CPU memory
@@ -124,9 +122,9 @@ protected:
     void unlock() override;
 
 private:
-    MemoryGroup *_associated_memory_group; /**< Registered memory manager */
-    Memory       _memory;                  /**< CPU memory */
-    Tensor      *_owner;                   /**< Owner of the allocator */
+    IMemoryManageable *_owner;                   /**< Memory manageable object that owns the allocator */
+    IMemoryGroup      *_associated_memory_group; /**< Registered memory manager */
+    Memory             _memory;                  /**< CPU memory */
 };
-}
-#endif /* __ARM_COMPUTE_TENSORALLOCATOR_H__ */
+} // namespace arm_compute
+#endif /* ARM_COMPUTE_TENSORALLOCATOR_H */

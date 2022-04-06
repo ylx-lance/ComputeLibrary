@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -47,13 +47,12 @@ public:
     }
     GraphResNet12Example(const GraphResNet12Example &) = delete;
     GraphResNet12Example &operator=(const GraphResNet12Example &) = delete;
-    GraphResNet12Example(GraphResNet12Example &&)                 = default; // NOLINT
-    GraphResNet12Example &operator=(GraphResNet12Example &&) = default;      // NOLINT
-    ~GraphResNet12Example() override                         = default;
+    ~GraphResNet12Example() override                              = default;
     bool do_setup(int argc, char **argv) override
     {
         // Parse arguments
         cmd_parser.parse(argc, argv);
+        cmd_parser.validate();
 
         // Consume common parameters
         common_params = consume_common_graph_parameters(common_opts);
@@ -82,10 +81,10 @@ public:
         const std::string model_path = "/cnn_data/resnet12_model/";
 
         // Create a preprocessor object
-        std::unique_ptr<IPreprocessor> preprocessor = arm_compute::support::cpp14::make_unique<TFPreproccessor>();
+        std::unique_ptr<IPreprocessor> preprocessor = std::make_unique<TFPreproccessor>();
 
         // Create input descriptor
-        const TensorShape tensor_shape     = permute_shape(TensorShape(image_width, image_height, 3U, 1U), DataLayout::NCHW, common_params.data_layout);
+        const TensorShape tensor_shape     = permute_shape(TensorShape(image_width, image_height, 3U, common_params.batches), DataLayout::NCHW, common_params.data_layout);
         TensorDescriptor  input_descriptor = TensorDescriptor(tensor_shape, common_params.data_type).set_layout(common_params.data_layout);
 
         // Set weights trained layout
@@ -129,7 +128,7 @@ public:
               .set_name("conv12/convolution")
               << ActivationLayer(ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::TANH)).set_name("conv12/Tanh")
               << ActivationLayer(ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LINEAR, 0.58f, 0.5f)).set_name("conv12/Linear")
-              << OutputLayer(arm_compute::support::cpp14::make_unique<DummyAccessor>(0));
+              << OutputLayer(std::make_unique<DummyAccessor>(0));
 
         // Finalize graph
         GraphConfig config;
@@ -137,6 +136,7 @@ public:
         config.use_tuner   = common_params.enable_tuner;
         config.tuner_mode  = common_params.tuner_mode;
         config.tuner_file  = common_params.tuner_file;
+        config.mlgo_file   = common_params.mlgo_file;
 
         graph.finalize(common_params.target, config);
 

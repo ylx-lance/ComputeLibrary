@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,25 +23,51 @@
  */
 #include "arm_compute/runtime/NEON/functions/NEReshapeLayer.h"
 
-#include "arm_compute/core/NEON/kernels/NEReshapeLayerKernel.h"
 #include "arm_compute/core/Validate.h"
-#include "support/ToolchainSupport.h"
+#include "src/cpu/operators/CpuReshape.h"
 
 #include <utility>
 
-using namespace arm_compute;
+namespace arm_compute
+{
+struct NEReshapeLayer::Impl
+{
+    const ITensor                   *src{ nullptr };
+    ITensor                         *dst{ nullptr };
+    std::unique_ptr<cpu::CpuReshape> op{ nullptr };
+};
+
+NEReshapeLayer::NEReshapeLayer()
+    : _impl(std::make_unique<Impl>())
+{
+}
+NEReshapeLayer::NEReshapeLayer(NEReshapeLayer &&) = default;
+NEReshapeLayer &NEReshapeLayer::operator=(NEReshapeLayer &&) = default;
+NEReshapeLayer::~NEReshapeLayer()                            = default;
 
 void NEReshapeLayer::configure(const ITensor *input, ITensor *output)
 {
-    auto k = arm_compute::support::cpp14::make_unique<NEReshapeLayerKernel>();
-    k->configure(input, output);
-    _kernel = std::move(k);
+    ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
+
+    _impl->src = input;
+    _impl->dst = output;
+    _impl->op  = std::make_unique<cpu::CpuReshape>();
+    _impl->op->configure(input->info(), output->info());
 }
 
 Status NEReshapeLayer::validate(const ITensorInfo *input, const ITensorInfo *output)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
-    ARM_COMPUTE_RETURN_ON_ERROR(NEReshapeLayerKernel::validate(input, output));
+    ARM_COMPUTE_RETURN_ON_ERROR(cpu::CpuReshape::validate(input, output));
 
     return Status{};
 }
+
+void NEReshapeLayer::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC, _impl->src);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+    _impl->op->run(pack);
+}
+} // namespace arm_compute

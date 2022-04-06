@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,16 +23,23 @@
  */
 #include "arm_compute/runtime/CL/functions/CLReverse.h"
 
-#include "arm_compute/core/CL/kernels/CLReverseKernel.h"
 #include "arm_compute/core/Types.h"
-#include "support/ToolchainSupport.h"
+#include "src/core/CL/kernels/CLReverseKernel.h"
+
+#include "src/common/utils/Log.h"
 
 namespace arm_compute
 {
 void CLReverse::configure(const ICLTensor *input, ICLTensor *output, const ICLTensor *axis)
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLReverseKernel>();
-    k->configure(input, output, axis);
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, axis);
+}
+
+void CLReverse::configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output, const ICLTensor *axis)
+{
+    ARM_COMPUTE_LOG_PARAMS(input, output, axis);
+    auto k = std::make_unique<CLReverseKernel>();
+    k->configure(compile_context, input, output, axis);
     _kernel = std::move(k);
 }
 

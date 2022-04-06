@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -31,6 +31,7 @@
 #include "tests/IAccessor.h"
 #include "tests/framework/Asserts.h"
 #include "tests/framework/Fixture.h"
+#include "tests/framework/ParametersLibrary.h"
 #include "tests/validation/Helpers.h"
 #include "tests/validation/reference/ActivationLayer.h"
 
@@ -46,6 +47,11 @@ template <typename TensorType, typename AccessorType, typename FunctionType, typ
 class ActivationValidationGenericFixture : public framework::Fixture
 {
 public:
+    ActivationValidationGenericFixture()
+        : _target(parameters->get_ctx<TensorType>())
+    {
+    }
+
     template <typename...>
     void setup(TensorShape shape, bool in_place, ActivationLayerInfo::ActivationFunction function, float alpha_beta, DataType data_type, QuantizationInfo quantization_info)
     {
@@ -62,6 +68,37 @@ public:
     }
 
 protected:
+    std::vector<T> get_boundary_values(T min, T max)
+    {
+        // This function will return a vector filled with the following values that can
+        // represent two partitions derived from equivalent partitioning.
+        // * Lower parition: min, min + delta, lower quarter (nominal), center - delta
+        // * Upper partition: center, center + delta, upper quarter (nominal), max - delta, max
+        const auto delta         = is_data_type_float(_data_type) ? T(0.1f) : T(1);
+        const auto center_value  = (min + max) / 2;
+        const auto lower_quarter = (min + center_value) / 2;
+        const auto upper_quarter = (center_value + max) / 2;
+
+        std::vector<T> boundary_values{};
+
+        // To ensure all the inserted values are within the given range after subtracing/adding delta
+        auto insert_values = [&boundary_values, &min, &max](const std::initializer_list<T> &new_values)
+        {
+            for(auto &v : new_values)
+            {
+                if(v >= min && v <= max)
+                {
+                    boundary_values.emplace_back(v);
+                }
+            }
+        };
+
+        insert_values({ min, static_cast<T>(min + delta), static_cast<T>(lower_quarter), static_cast<T>(center_value - delta) });                               // lower partition
+        insert_values({ static_cast<T>(center_value), static_cast<T>(center_value + delta), static_cast<T>(upper_quarter), static_cast<T>(max - delta), max }); // upper partition
+
+        return boundary_values;
+    }
+
     template <typename U>
     void fill(U &&tensor)
     {
@@ -70,47 +107,42 @@ protected:
             float min_bound = 0;
             float max_bound = 0;
             std::tie(min_bound, max_bound) = get_activation_layer_test_bounds<T>(_function, _data_type);
-            std::uniform_real_distribution<> distribution(min_bound, max_bound);
-            library->fill(tensor, distribution, 0);
-        }
-        else if(is_data_type_quantized(tensor.data_type()))
-        {
-            library->fill_tensor_uniform(tensor, 0);
+            library->fill_static_values(tensor, get_boundary_values(static_cast<T>(min_bound), static_cast<T>(max_bound)));
         }
         else
         {
-            int min_bound = 0;
-            int max_bound = 0;
-            std::tie(min_bound, max_bound) = get_activation_layer_test_bounds<T>(_function, _data_type);
-            std::uniform_int_distribution<> distribution(min_bound, max_bound);
-            library->fill(tensor, distribution, 0);
+            PixelValue min{};
+            PixelValue max{};
+            std::tie(min, max) = get_min_max(tensor.data_type());
+            library->fill_static_values(tensor, get_boundary_values(min.get<T>(), max.get<T>()));
         }
     }
 
     TensorType compute_target(const TensorShape &shape, ActivationLayerInfo info)
     {
+        auto ctx = parameters->get_ctx<TensorType>();
         // Create tensors
-        TensorType src = create_tensor<TensorType>(shape, _data_type, 1, _input_quantization_info);
-        TensorType dst = create_tensor<TensorType>(shape, _data_type, 1, _output_quantization_info);
+        TensorType src = create_tensor<TensorType>(shape, _data_type, 1, _input_quantization_info, DataLayout::NCHW, ctx);
+        TensorType dst = create_tensor<TensorType>(shape, _data_type, 1, _output_quantization_info, DataLayout::NCHW, ctx);
 
         // Create and configure function
-        FunctionType act_layer;
+        FunctionType act_layer(ctx);
 
         TensorType *dst_ptr = _in_place ? nullptr : &dst;
 
         act_layer.configure(&src, dst_ptr, info);
 
-        ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(dst.info()->is_resizable());
 
         // Allocate tensors
         src.allocator()->allocate();
-        ARM_COMPUTE_EXPECT(!src.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(!src.info()->is_resizable());
 
         if(!_in_place)
         {
             dst.allocator()->allocate();
-            ARM_COMPUTE_EXPECT(!dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+            ARM_COMPUTE_ASSERT(!dst.info()->is_resizable());
         }
 
         // Fill tensors
@@ -143,8 +175,9 @@ protected:
 private:
     QuantizationInfo calculate_output_quantization_info(DataType dt, const ActivationLayerInfo &act_info, const QuantizationInfo &default_qinfo)
     {
-        auto qasymm8_max = float(std::numeric_limits<uint8_t>::max()) + 1.f;
-        auto qsymm16_max = float(std::numeric_limits<int16_t>::max()) + 1.f;
+        auto qasymm8_max        = float(std::numeric_limits<uint8_t>::max()) + 1.f;
+        auto qasymm8_signed_max = float(std::numeric_limits<int8_t>::max()) + 1.f;
+        auto qsymm16_max        = float(std::numeric_limits<int16_t>::max()) + 1.f;
 
         switch(act_info.activation())
         {
@@ -156,6 +189,10 @@ private:
                 else if(dt == DataType::QASYMM8)
                 {
                     return QuantizationInfo(1.f / (0.5 * qasymm8_max), int(0.5 * qasymm8_max));
+                }
+                else if(dt == DataType::QASYMM8_SIGNED)
+                {
+                    return QuantizationInfo(1.f / qasymm8_signed_max, 0);
                 }
                 else
                 {
@@ -169,6 +206,10 @@ private:
                 else if(dt == DataType::QASYMM8)
                 {
                     return QuantizationInfo(1.f / qasymm8_max, 0);
+                }
+                else if(dt == DataType::QASYMM8_SIGNED)
+                {
+                    return QuantizationInfo(1.f / (2.f * qasymm8_signed_max), -int(qasymm8_signed_max));
                 }
                 else
                 {

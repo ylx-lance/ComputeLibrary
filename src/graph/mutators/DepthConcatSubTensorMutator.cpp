@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -30,8 +30,8 @@
 #include "arm_compute/graph/backends/BackendRegistry.h"
 #include "arm_compute/graph/nodes/ConcatenateLayerNode.h"
 
-#include "arm_compute/core/utils/misc/Cast.h"
-#include "arm_compute/core/utils/misc/Iterable.h"
+#include "support/Cast.h"
+#include "support/Iterable.h"
 
 namespace arm_compute
 {
@@ -40,6 +40,11 @@ namespace graph
 const char *DepthConcatSubTensorMutator::name()
 {
     return "DepthConcatSubTensorMutator";
+}
+
+IGraphMutator::MutationType DepthConcatSubTensorMutator::type() const
+{
+    return IGraphMutator::MutationType::Backend;
 }
 
 void DepthConcatSubTensorMutator::mutate(Graph &g)

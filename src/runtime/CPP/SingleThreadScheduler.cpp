@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,12 +29,6 @@
 
 namespace arm_compute
 {
-SingleThreadScheduler &SingleThreadScheduler::get()
-{
-    static SingleThreadScheduler scheduler;
-    return scheduler;
-}
-
 void SingleThreadScheduler::set_num_threads(unsigned int num_threads)
 {
     ARM_COMPUTE_UNUSED(num_threads);
@@ -43,16 +37,34 @@ void SingleThreadScheduler::set_num_threads(unsigned int num_threads)
 
 void SingleThreadScheduler::schedule(ICPPKernel *kernel, const Hints &hints)
 {
+    const Window &max_window = kernel->window();
+
+    if(hints.split_dimension() != IScheduler::split_dimensions_all)
+    {
+        const unsigned int num_iterations = max_window.num_iterations(hints.split_dimension());
+        if(num_iterations < 1)
+        {
+            return;
+        }
+    }
+
+    ThreadInfo info;
+    info.cpu_info = &cpu_info();
+    kernel->run(kernel->window(), info);
+}
+
+void SingleThreadScheduler::schedule_op(ICPPKernel *kernel, const Hints &hints, const Window &window, ITensorPack &tensors)
+{
     ARM_COMPUTE_UNUSED(hints);
     ThreadInfo info;
-    info.cpu_info = &_cpu_info;
-    kernel->run(kernel->window(), info);
+    info.cpu_info = &cpu_info();
+    kernel->run_op(tensors, window, info);
 }
 
 void SingleThreadScheduler::run_workloads(std::vector<Workload> &workloads)
 {
     ThreadInfo info;
-    info.cpu_info = &_cpu_info;
+    info.cpu_info = &cpu_info();
     for(auto &wl : workloads)
     {
         wl(info);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,7 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/CL/kernels/CLDeconvolutionReshapeOutputKernel.h"
+#include "src/core/CL/kernels/CLDeconvolutionReshapeOutputKernel.h"
 
 #include "arm_compute/core/CL/CLHelpers.h"
 #include "arm_compute/core/CL/CLKernelLibrary.h"
@@ -30,6 +30,9 @@
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+#include "support/StringSupport.h"
 
 namespace arm_compute
 {
@@ -39,9 +42,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *bias, con
                           const PadStrideInfo &deconv_info)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output, input_info, weights_info);
-    const DataLayout   data_layout = input_info->data_layout();
-    const unsigned int stride_x    = deconv_info.stride().first;
-    const unsigned int stride_y    = deconv_info.stride().second;
+    const DataLayout data_layout = input_info->data_layout();
 
     const size_t idx_w = get_data_layout_dimension_index(data_layout, DataLayoutDimension::WIDTH);
     const size_t idx_h = get_data_layout_dimension_index(data_layout, DataLayoutDimension::HEIGHT);
@@ -52,7 +53,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *bias, con
     ARM_COMPUTE_RETURN_ERROR_ON(weights_info->dimension(idx_w) != deconv_info.stride().first);
     ARM_COMPUTE_RETURN_ERROR_ON(weights_info->dimension(idx_h) != deconv_info.stride().second);
 
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::F32, DataType::F16, DataType::QASYMM8, DataType::S32);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::F32, DataType::F16, DataType::QASYMM8, DataType::QASYMM8_SIGNED, DataType::S32);
     if(!is_qasymm)
     {
         ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input, input_info, weights_info);
@@ -77,8 +78,8 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *bias, con
 
     if(output->total_size() != 0)
     {
-        auto out_dims = deconvolution_output_dimensions(input_info->dimension(idx_w), input_info->dimension(idx_h), weights_info->dimension(idx_w), weights_info->dimension(idx_h),
-                                                        0, 0, stride_x, stride_y);
+        const PadStrideInfo stride_info(deconv_info.stride().first, deconv_info.stride().second);
+        auto                out_dims = deconvolution_output_dimensions(input_info->dimension(idx_w), input_info->dimension(idx_h), weights_info->dimension(idx_w), weights_info->dimension(idx_h), stride_info);
 
         const TensorShape output_shape = misc::shape_calculator::compute_deconvolution_output_shape(out_dims, *input_info, *weights_info);
 
@@ -91,15 +92,12 @@ std::pair<Status, Window> validate_and_configure_window(const ITensorInfo *input
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
 
-    const DataLayout data_layout = input_info->data_layout();
+    const DataLayout    data_layout = input_info->data_layout();
+    const size_t        idx_w       = get_data_layout_dimension_index(data_layout, DataLayoutDimension::WIDTH);
+    const size_t        idx_h       = get_data_layout_dimension_index(data_layout, DataLayoutDimension::HEIGHT);
+    const PadStrideInfo stride_info(deconv_info.stride().first, deconv_info.stride().second);
 
-    const unsigned int stride_x = deconv_info.stride().first;
-    const unsigned int stride_y = deconv_info.stride().second;
-    const size_t       idx_w    = get_data_layout_dimension_index(data_layout, DataLayoutDimension::WIDTH);
-    const size_t       idx_h    = get_data_layout_dimension_index(data_layout, DataLayoutDimension::HEIGHT);
-
-    auto out_dims = deconvolution_output_dimensions(input_info->dimension(idx_w), input_info->dimension(idx_h), weights_info->dimension(idx_w), weights_info->dimension(idx_h),
-                                                    0, 0, stride_x, stride_y);
+    auto out_dims = deconvolution_output_dimensions(input_info->dimension(idx_w), input_info->dimension(idx_h), weights_info->dimension(idx_w), weights_info->dimension(idx_h), stride_info);
 
     const TensorShape output_shape = misc::shape_calculator::compute_deconvolution_output_shape(out_dims, *input_info, *weights_info);
 
@@ -115,14 +113,23 @@ CLDeconvolutionReshapeOutputKernel::CLDeconvolutionReshapeOutputKernel()
     : _add_bias(false),
       _bias(nullptr)
 {
+    _type = CLKernelType::ELEMENTWISE;
 }
 
 void CLDeconvolutionReshapeOutputKernel::configure(const ICLTensor *input, const ICLTensor *bias, ICLTensor *output, const ITensorInfo *input_info, const ITensorInfo *weights_info,
                                                    const PadStrideInfo &deconv_info)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, bias, output, input_info, weights_info, deconv_info);
+}
+
+void CLDeconvolutionReshapeOutputKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, const ICLTensor *bias, ICLTensor *output, const ITensorInfo *input_info,
+                                                   const ITensorInfo   *weights_info,
+                                                   const PadStrideInfo &deconv_info)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output, input_info, weights_info);
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input->info(), (bias != nullptr ? bias->info() : nullptr), output->info(), input_info, weights_info, deconv_info));
 
+    auto padding_info = get_padding_info({ input, bias, output });
     // Configure kernel window
     auto win_config = validate_and_configure_window(input->info(), output->info(), input_info, weights_info, deconv_info);
     ARM_COMPUTE_ERROR_THROW_ON(win_config.first);
@@ -152,7 +159,7 @@ void CLDeconvolutionReshapeOutputKernel::configure(const ICLTensor *input, const
     build_opts.add_option_if(data_layout == DataLayout::NCHW, "-DNUM_FILTERS=" + support::cpp11::to_string(filter_b));
     build_opts.add_option_if(_add_bias, "-DADD_BIAS");
 
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel("deconvolution_reshape", build_opts.options()));
+    _kernel = create_kernel(compile_context, "deconvolution_reshape", build_opts.options());
     ICLKernel::configure_internal(win_config.second);
 
     // Set config_id for enabling LWS tuning
@@ -168,6 +175,7 @@ void CLDeconvolutionReshapeOutputKernel::configure(const ICLTensor *input, const
     _config_id += support::cpp11::to_string(output->info()->dimension(0));
     _config_id += "_";
     _config_id += support::cpp11::to_string(output->info()->dimension(1));
+    ARM_COMPUTE_ERROR_ON(has_padding_changed(padding_info));
 }
 
 Status CLDeconvolutionReshapeOutputKernel::validate(const ITensorInfo *input, const ITensorInfo *bias, const ITensorInfo *output, const ITensorInfo *input_info, const ITensorInfo *weights_info,

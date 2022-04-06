@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,40 +27,14 @@
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
-
-#include "support/ToolchainSupport.h"
+#include "src/common/utils/Log.h"
+#include "src/core/NEON/kernels/NEPadLayerKernel.h"
+#include "src/core/helpers/AutoConfiguration.h"
 
 namespace arm_compute
 {
 namespace
 {
-TensorInfo get_expected_output_tensorinfo(const ITensorInfo &input, const PaddingList &paddings)
-{
-    const TensorShape expected_output_shape = arm_compute::misc::shape_calculator::compute_padded_shape(input.tensor_shape(), paddings);
-    const TensorInfo  expected_output_info  = input.clone()->set_tensor_shape(expected_output_shape);
-    return expected_output_info;
-}
-
-Status validate_arguments(const ITensorInfo &input, ITensorInfo &output, const PaddingList &paddings)
-{
-    const TensorInfo expected_output_info = get_expected_output_tensorinfo(input, paddings);
-    auto_init_if_empty(output, expected_output_info);
-    ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_SHAPES(&output, &expected_output_info);
-
-    return Status{};
-}
-
-Coordinates get_subtensor_coords(const PaddingList &paddings)
-{
-    Coordinates coords;
-    for(unsigned int i = 0; i < paddings.size(); ++i)
-    {
-        coords.set(i, paddings[i].first);
-    }
-
-    return coords;
-}
-
 uint32_t last_padding_dimension(const PaddingList &padding)
 {
     int last_padding_dim = padding.size() - 1;
@@ -75,24 +49,17 @@ uint32_t last_padding_dimension(const PaddingList &padding)
 }
 } // namespace
 
+NEPadLayer::~NEPadLayer() = default;
+
 NEPadLayer::NEPadLayer()
-    : _copy_kernel(), _mode(), _padding(), _memset_kernel(), _num_dimensions(0), _slice_functions(), _concat_functions(), _slice_results(), _concat_results(), _output_subtensor()
+    : _copy_function(), _pad_kernel(), _mode(), _padding(), _num_dimensions(0), _slice_functions(), _concat_functions(), _slice_results(), _concat_results()
 {
 }
 
 void NEPadLayer::configure_constant_mode(ITensor *input, ITensor *output, const PaddingList &padding, const PixelValue constant_value)
 {
-    // Auto-init
-    auto_init_if_empty(*output->info(), get_expected_output_tensorinfo(*input->info(), padding));
-
-    // Create SubTensor (Can use sub-tensor as the kernels to be executed do not require padding)
-    _output_subtensor = SubTensor(output, input->info()->tensor_shape(), get_subtensor_coords(padding), true);
-
-    // Set the pages of the output to the specified value
-    _memset_kernel.configure(output, constant_value);
-
-    // Copy the input to the output
-    _copy_kernel.configure(input, &_output_subtensor);
+    _pad_kernel = std::make_unique<NEPadLayerKernel>();
+    _pad_kernel->configure(input, output, padding, constant_value, PaddingMode::CONSTANT);
 }
 
 void NEPadLayer::configure_reflect_symmetric_mode(ITensor *input, ITensor *output)
@@ -156,7 +123,7 @@ void NEPadLayer::configure_reflect_symmetric_mode(ITensor *input, ITensor *outpu
             const int32_t end_mask_after    = ends_after[i] < 0 ? ~0 : ~(1u << i);
 
             // Reflect the input values for the padding before and after the input.
-            std::vector<ITensor *> concat_vector;
+            std::vector<const ITensor *> concat_vector;
             if(_padding[i].first > 0)
             {
                 if(i < prev->info()->num_dimensions())
@@ -186,6 +153,11 @@ void NEPadLayer::configure_reflect_symmetric_mode(ITensor *input, ITensor *outpu
             }
             // Concatenate the padding before and after with the input.
             ITensor *out = (i == _num_dimensions - 1) ? output : &_concat_results[i];
+            out->info()->set_quantization_info(output->info()->quantization_info());
+            for(auto &v : concat_vector)
+            {
+                v->info()->set_quantization_info(input->info()->quantization_info());
+            }
             _concat_functions[i].configure(concat_vector, out, i);
             if(i != _num_dimensions - 1)
             {
@@ -201,6 +173,7 @@ void NEPadLayer::configure_reflect_symmetric_mode(ITensor *input, ITensor *outpu
 void NEPadLayer::configure(ITensor *input, ITensor *output, const PaddingList &padding, const PixelValue constant_value, const PaddingMode mode)
 {
     ARM_COMPUTE_ERROR_THROW_ON(validate(input->info(), output->info(), padding, constant_value, mode));
+    ARM_COMPUTE_LOG_PARAMS(input, output, padding, constant_value, mode);
 
     _padding = padding;
     _mode    = mode;
@@ -233,7 +206,7 @@ void NEPadLayer::configure(ITensor *input, ITensor *output, const PaddingList &p
     else
     {
         // Copy the input to the whole output if no padding is applied
-        _copy_kernel.configure(input, output);
+        _copy_function.configure(input, output);
     }
 }
 
@@ -253,11 +226,7 @@ Status NEPadLayer::validate(const ITensorInfo *input, const ITensorInfo *output,
     {
         case PaddingMode::CONSTANT:
         {
-            auto          output_clone = output->clone();
-            SubTensorInfo output_subtensor_info(output_clone.get(), input->tensor_shape(), get_subtensor_coords(padding), true);
-            ARM_COMPUTE_RETURN_ON_ERROR(validate_arguments(*input, *output_clone, padding));
-            ARM_COMPUTE_RETURN_ON_ERROR(NECopyKernel::validate(input, &output_subtensor_info));
-            break;
+            return NEPadLayerKernel::validate(input, output, padding, constant_value, mode);
         }
         case PaddingMode::REFLECT:
         case PaddingMode::SYMMETRIC:
@@ -293,8 +262,7 @@ void NEPadLayer::run()
         {
             case PaddingMode::CONSTANT:
             {
-                NEScheduler::get().schedule(&_memset_kernel, Window::DimY);
-                NEScheduler::get().schedule(&_copy_kernel, Window::DimY);
+                NEScheduler::get().schedule(_pad_kernel.get(), Window::DimZ);
                 break;
             }
             case PaddingMode::REFLECT:
@@ -323,7 +291,7 @@ void NEPadLayer::run()
     }
     else
     {
-        NEScheduler::get().schedule(&_copy_kernel, Window::DimY);
+        _copy_function.run();
     }
 }
 } // namespace arm_compute

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_MISC_UTILITY_H__
-#define __ARM_COMPUTE_MISC_UTILITY_H__
+#ifndef ARM_COMPUTE_MISC_UTILITY_H
+#define ARM_COMPUTE_MISC_UTILITY_H
+
+#include "arm_compute/core/Error.h"
 
 #include <algorithm>
 #include <array>
@@ -53,6 +55,20 @@ struct index_sequence_generator<0u, S...> : index_sequence<S...>
 
 template <std::size_t N>
 using index_sequence_t = typename index_sequence_generator<N>::type;
+
+template <typename T, std::size_t N, T val, T... vals>
+struct generate_array : generate_array < T, N - 1, val, val, vals... >
+{
+};
+
+template <typename T, T val, T... vals>
+struct generate_array<T, 0, val, vals...>
+{
+    static constexpr std::array<T, sizeof...(vals)> value{ vals... };
+};
+
+template <typename T, T                  val, T... vals>
+constexpr std::array<T, sizeof...(vals)> generate_array<T, 0, val, vals...>::value;
 /** @endcond */
 
 namespace detail
@@ -69,6 +85,7 @@ T make_array(Iterator first, index_sequence<S...>)
 template <std::size_t N, typename Iterator>
 std::array<typename std::iterator_traits<Iterator>::value_type, N> make_array(Iterator first, Iterator last)
 {
+    ARM_COMPUTE_UNUSED(last);
     return detail::make_array(first, index_sequence_t<N> {});
 }
 
@@ -193,6 +210,25 @@ inline std::string tolower(std::string string)
     });
     return string;
 }
+
+/** Get environment variable as a string
+ *
+ * @note Return empty string on bare-metal
+ *
+ * @param[in] env_name Name of the Environment variable to retrieve
+ *
+ * @return Environment variable content, or empty string if the variable is undefined or on bare-metal
+ */
+inline std::string getenv(const std::string &env_name)
+{
+#ifdef BARE_METAL
+    ARM_COMPUTE_UNUSED(env_name);
+    return std::string{};
+#else  // BARE_METAL
+    const auto env_chr = std::getenv(env_name.c_str());
+    return env_chr == nullptr ? std::string{} : std::string{ env_chr };
+#endif // BARE_METAL
+}
 } // namespace utility
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_MISC_UTILITY_H__ */
+#endif /* ARM_COMPUTE_MISC_UTILITY_H */

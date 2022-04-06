@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -22,10 +22,9 @@
  * SOFTWARE.
  */
 #include "arm_compute/runtime/CL/CLBufferAllocator.h"
-#include "arm_compute/runtime/CL/CLMemoryGroup.h"
 #include "arm_compute/runtime/CL/CLTensorAllocator.h"
 #include "arm_compute/runtime/CL/functions/CLFullyConnectedLayer.h"
-#include "support/ToolchainSupport.h"
+#include "arm_compute/runtime/MemoryGroup.h"
 #include "tests/AssetsLibrary.h"
 #include "tests/CL/CLAccessor.h"
 #include "tests/Globals.h"

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,17 +29,22 @@
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
+#include "src/common/utils/Log.h"
+#include "src/core/NEON/kernels/NENormalizationLayerKernel.h"
 
-using namespace arm_compute;
+namespace arm_compute
+{
+NENormalizationLayer::~NENormalizationLayer() = default;
 
 NENormalizationLayer::NENormalizationLayer(std::shared_ptr<IMemoryManager> memory_manager)
-    : _memory_group(std::move(memory_manager)), _norm_kernel(), _multiply_kernel(), _border_handler(), _input_squared()
+    : _memory_group(std::move(memory_manager)), _norm_kernel(), _multiply_f(), _input_squared()
 {
 }
 
 void NENormalizationLayer::configure(const ITensor *input, ITensor *output, const NormalizationLayerInfo &norm_info)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
+    ARM_COMPUTE_LOG_PARAMS(input, output, norm_info);
 
     TensorInfo tensor_info(input->info()->tensor_shape(), 1, input->info()->data_type());
     _input_squared.allocator()->init(tensor_info);
@@ -48,9 +53,9 @@ void NENormalizationLayer::configure(const ITensor *input, ITensor *output, cons
     _memory_group.manage(&_input_squared);
 
     // Configure kernels
-    _norm_kernel.configure(input, &_input_squared, output, norm_info);
-    _multiply_kernel.configure(input, input, &_input_squared, 1.0f, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO);
-    _border_handler.configure(&_input_squared, _norm_kernel.border_size(), BorderMode::CONSTANT, PixelValue(0.0f));
+    _norm_kernel = std::make_unique<NENormalizationLayerKernel>();
+    _norm_kernel->configure(input, &_input_squared, output, norm_info);
+    _multiply_f.configure(input, input, &_input_squared, 1.0f, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO);
 
     // Allocate the tensor once the configure methods have been called
     _input_squared.allocator()->allocate();
@@ -62,7 +67,7 @@ Status NENormalizationLayer::validate(const ITensorInfo *input, const ITensorInf
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
 
     ARM_COMPUTE_RETURN_ON_ERROR(NENormalizationLayerKernel::validate(input, input, output, norm_info));
-    ARM_COMPUTE_RETURN_ON_ERROR(NEPixelWiseMultiplicationKernel::validate(input, input, output, 1.0f, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO));
+    ARM_COMPUTE_RETURN_ON_ERROR(NEPixelWiseMultiplication::validate(input, input, output, 1.0f, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO));
 
     return Status{};
 }
@@ -70,8 +75,7 @@ Status NENormalizationLayer::validate(const ITensorInfo *input, const ITensorInf
 void NENormalizationLayer::run()
 {
     MemoryGroupResourceScope scope_mg(_memory_group);
-
-    NEScheduler::get().schedule(&_multiply_kernel, Window::DimY);
-    NEScheduler::get().schedule(&_border_handler, Window::DimY);
-    NEScheduler::get().schedule(&_norm_kernel, Window::DimY);
+    _multiply_f.run();
+    NEScheduler::get().schedule(_norm_kernel.get(), Window::DimY);
+}
 }

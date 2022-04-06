@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CPPTOPKV_H__
-#define __ARM_COMPUTE_CPPTOPKV_H__
+#ifndef ARM_COMPUTE_CPPTOPKV_H
+#define ARM_COMPUTE_CPPTOPKV_H
 
 #include "arm_compute/runtime/CPP/ICPPSimpleFunction.h"
 
@@ -38,8 +38,8 @@ class CPPTopKV : public ICPPSimpleFunction
 public:
     /** Set the input and output of the kernel.
      *
-     * @param[in]  predictions A batch_size x classes tensor. Data types supported: F16/S32/F32/QASYMM8
-     * @param[in]  targets     A batch_size 1D tensor of class ids. Data types supported: S32
+     * @param[in]  predictions A batch_size x classes tensor. Data types supported: F16/S32/F32/QASYMM8/QASYMM8_SIGNED
+     * @param[in]  targets     A batch_size 1D tensor of class ids. Data types supported: U32
      * @param[out] output      Computed precision at @p k as a bool 1D tensor. Data types supported: U8
      * @param[in]  k           Number of top elements to look at for computing precision.
      */
@@ -47,8 +47,8 @@ public:
 
     /** Static function to check if given info will lead to a valid configuration of @ref CPPTopKVKernel
      *
-     * @param[in] predictions A batch_size x classes tensor info. Data types supported: F16/S32/F32/QASYMM8
-     * @param[in] targets     A batch_size 1D tensor info of class ids. Data types supported: S32
+     * @param[in] predictions A batch_size x classes tensor info. Data types supported: F16/S32/F32/QASYMM8/QASYMM8_SIGNED
+     * @param[in] targets     A batch_size 1D tensor info of class ids. Data types supported: U32
      * @param[in] output      Computed precision at @p k as a bool 1D tensor info. Data types supported: U8
      * @param[in] k           Number of top elements to look at for computing precision.
      *
@@ -57,4 +57,4 @@ public:
     static Status validate(const ITensorInfo *predictions, const ITensorInfo *targets, ITensorInfo *output, const unsigned int k);
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CPPTOPKV_H__ */
+#endif /* ARM_COMPUTE_CPPTOPKV_H */

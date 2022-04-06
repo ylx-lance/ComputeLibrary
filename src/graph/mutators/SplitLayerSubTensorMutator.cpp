@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -30,8 +30,8 @@
 #include "arm_compute/graph/backends/BackendRegistry.h"
 #include "arm_compute/graph/nodes/SplitLayerNode.h"
 
-#include "arm_compute/core/utils/misc/Cast.h"
-#include "arm_compute/core/utils/misc/Iterable.h"
+#include "support/Cast.h"
+#include "support/Iterable.h"
 
 namespace arm_compute
 {
@@ -40,6 +40,11 @@ namespace graph
 const char *SplitLayerSubTensorMutator::name()
 {
     return "SplitLayerSubTensorMutator";
+}
+
+IGraphMutator::MutationType SplitLayerSubTensorMutator::type() const
+{
+    return IGraphMutator::MutationType::Backend;
 }
 
 void SplitLayerSubTensorMutator::mutate(Graph &g)
@@ -77,7 +82,7 @@ void SplitLayerSubTensorMutator::mutate(Graph &g)
 
                 auto *split_node = arm_compute::utils::cast::polymorphic_downcast<SplitLayerNode *>(node);
 
-                const unsigned int axis          = split_node->axis();
+                const int          axis          = split_node->axis();
                 const unsigned int num_splits    = split_node->num_splits();
                 const bool         extend_parent = (axis < 2);
 
@@ -87,7 +92,7 @@ void SplitLayerSubTensorMutator::mutate(Graph &g)
                     Tensor           *output_tensor = node->output(i);
                     const TensorShape output_shape  = output_tensor->desc().shape;
                     Coordinates       coords;
-                    std::tie(std::ignore, coords) = SplitLayerNode::compute_output_descriptor(input_tensor->desc(), num_splits, axis, i);
+                    std::tie(std::ignore, coords) = split_node->compute_output_descriptor(input_tensor->desc(), num_splits, axis, i);
 
                     backends::IDeviceBackend      &backend = backends::BackendRegistry::get().get_backend(output_tensor->desc().target);
                     std::unique_ptr<ITensorHandle> handle  = backend.create_subtensor(input_tensor->handle(), output_shape, coords, extend_parent);

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,13 +21,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_CLDEVICEBACKEND_H__
-#define __ARM_COMPUTE_GRAPH_CLDEVICEBACKEND_H__
+#ifndef ARM_COMPUTE_GRAPH_CLDEVICEBACKEND_H
+#define ARM_COMPUTE_GRAPH_CLDEVICEBACKEND_H
 
 #include "arm_compute/graph/IDeviceBackend.h"
 
 #include "arm_compute/runtime/CL/CLBufferAllocator.h"
+#include "arm_compute/runtime/CL/CLGEMMHeuristicsHandle.h"
 #include "arm_compute/runtime/CL/CLTuner.h"
+#include "arm_compute/runtime/CL/CLTypes.h"
 
 namespace arm_compute
 {
@@ -67,14 +69,18 @@ public:
     std::unique_ptr<arm_compute::IFunction> configure_node(INode &node, GraphContext &ctx) override;
     Status validate_node(INode &node) override;
     std::shared_ptr<arm_compute::IMemoryManager> create_memory_manager(MemoryManagerAffinity affinity) override;
+    std::shared_ptr<arm_compute::IWeightsManager> create_weights_manager() override;
+    void                                          sync() override;
 
 private:
-    int                                _context_count; /**< Counts how many contexts are currently using the backend */
-    CLTuner                            _tuner;         /**< CL kernel tuner */
-    std::unique_ptr<CLBufferAllocator> _allocator;     /**< CL buffer affinity allocator */
-    std::string                        _tuner_file;    /**< Filename to load/store the tuner's values from */
+    int                                _context_count;   /**< Counts how many contexts are currently using the backend */
+    CLTuner                            _tuner;           /**< CL kernel tuner */
+    CLGEMMHeuristicsHandle             _gemm_heuristics; /**< GEMM heuristics */
+    std::unique_ptr<CLBufferAllocator> _allocator;       /**< CL buffer affinity allocator */
+    std::string                        _tuner_file;      /**< Filename to load/store the tuner's values from */
+    CLBackendType                      _backend_type;    /**< OpenCL backend type to use */
 };
 } // namespace backends
 } // namespace graph
 } // namespace arm_compute
-#endif //__ARM_COMPUTE_GRAPH_CLDEVICEBACKEND_H__
+#endif //ARM_COMPUTE_GRAPH_CLDEVICEBACKEND_H

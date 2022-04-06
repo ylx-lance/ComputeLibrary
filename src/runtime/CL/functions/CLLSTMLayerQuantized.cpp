@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,10 +27,12 @@
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/quantization/AsymmHelpers.h"
+#include "src/core/CL/kernels/CLFillBorderKernel.h"
+#include "src/core/helpers/AutoConfiguration.h"
 
-#include <cmath>
+#include "src/common/utils/Log.h"
+
 #include <memory>
-#include <tuple>
 
 namespace arm_compute
 {
@@ -62,9 +64,25 @@ void CLLSTMLayerQuantized::configure(const ICLTensor *input,
                                      ICLTensor *cell_state_in, const ICLTensor *output_state_in,
                                      ICLTensor *cell_state_out, ICLTensor *output_state_out)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, input_to_input_weights, input_to_forget_weights, input_to_cell_weights, input_to_output_weights, recurrent_to_input_weights,
+              recurrent_to_forget_weights, recurrent_to_cell_weights, recurrent_to_output_weights, input_gate_bias, forget_gate_bias, cell_bias, output_gate_bias, cell_state_in, output_state_in, cell_state_out,
+              output_state_out);
+}
+
+void CLLSTMLayerQuantized::configure(const CLCompileContext &compile_context, const ICLTensor *input,
+                                     const ICLTensor *input_to_input_weights, const ICLTensor *input_to_forget_weights, const ICLTensor *input_to_cell_weights, const ICLTensor *input_to_output_weights,
+                                     const ICLTensor *recurrent_to_input_weights, const ICLTensor *recurrent_to_forget_weights, const ICLTensor *recurrent_to_cell_weights, const ICLTensor *recurrent_to_output_weights,
+                                     const ICLTensor *input_gate_bias, const ICLTensor *forget_gate_bias, const ICLTensor *cell_bias, const ICLTensor *output_gate_bias,
+                                     ICLTensor *cell_state_in, const ICLTensor *output_state_in,
+                                     ICLTensor *cell_state_out, ICLTensor *output_state_out)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, input_to_input_weights, input_to_forget_weights, input_to_cell_weights, input_to_output_weights,
                                  recurrent_to_input_weights, recurrent_to_forget_weights, recurrent_to_cell_weights, recurrent_to_output_weights,
                                  input_gate_bias, forget_gate_bias, cell_bias, output_gate_bias, cell_state_in, output_state_in, cell_state_out, output_state_out);
+
+    ARM_COMPUTE_LOG_PARAMS(input, input_to_input_weights, input_to_forget_weights, input_to_cell_weights, input_to_output_weights, recurrent_to_input_weights,
+                           recurrent_to_forget_weights, recurrent_to_cell_weights, recurrent_to_output_weights, input_gate_bias, forget_gate_bias, cell_bias, output_gate_bias, cell_state_in, output_state_in, cell_state_out,
+                           output_state_out);
 
     ARM_COMPUTE_ERROR_THROW_ON(CLLSTMLayerQuantized::validate(input->info(), input_to_input_weights->info(), input_to_forget_weights->info(), input_to_cell_weights->info(),
                                                               input_to_output_weights->info(),
@@ -107,18 +125,18 @@ void CLLSTMLayerQuantized::configure(const ICLTensor *input,
     recurrent_weights_vector.emplace_back(recurrent_to_output_weights);
 
     _input_weights.allocator()->init(TensorInfo(TensorShape(input_size, 4 * output_size), 1, DataType::QASYMM8, qweights));
-    _concat_input_weights.configure(inputs_weights_vector, &_input_weights, Window::DimY);
+    _concat_input_weights.configure(compile_context, inputs_weights_vector, &_input_weights, Window::DimY);
 
     _recurrent_weights.allocator()->init(TensorInfo(TensorShape(output_size, 4 * output_size), 1, DataType::QASYMM8, qweights));
-    _concat_recurrent_weights.configure(recurrent_weights_vector, &_recurrent_weights, Window::DimY);
+    _concat_recurrent_weights.configure(compile_context, recurrent_weights_vector, &_recurrent_weights, Window::DimY);
 
     std::vector<const ICLTensor *> weights_vector;
     weights_vector.emplace_back(&_recurrent_weights);
     weights_vector.emplace_back(&_input_weights);
 
     _weights.allocator()->init(TensorInfo(TensorShape(output_size + input_size, 4 * output_size), 1, DataType::QASYMM8, qweights));
-    _concat_weights.configure(weights_vector, &_weights, Window::DimX);
-    _transpose_weights.configure(&_weights, &_weights_transposed);
+    _concat_weights.configure(compile_context, weights_vector, &_weights, Window::DimX);
+    _transpose_weights.configure(compile_context, &_weights, &_weights_transposed);
 
     // Input concatenation
     std::vector<const ICLTensor *> input_vector;
@@ -127,7 +145,7 @@ void CLLSTMLayerQuantized::configure(const ICLTensor *input,
 
     _memory_group.manage(&_input);
     _input.allocator()->init(TensorInfo(TensorShape(output_size + input_size, batch_size), 1, DataType::QASYMM8, qasymm));
-    _concat_inputs.configure(input_vector, &_input, Window::DimX);
+    _concat_inputs.configure(compile_context, input_vector, &_input, Window::DimX);
 
     // Bias concatenation
     std::vector<const ICLTensor *> bias_vector;
@@ -137,7 +155,7 @@ void CLLSTMLayerQuantized::configure(const ICLTensor *input,
     bias_vector.emplace_back(output_gate_bias);
 
     _bias.allocator()->init(TensorInfo(TensorShape(4 * output_size), 1, DataType::S32));
-    _concat_bias.configure(bias_vector, &_bias, Window::DimX);
+    _concat_bias.configure(compile_context, bias_vector, &_bias, Window::DimX);
 
     // Invert the offset for gemmlowp
     _input.info()->set_quantization_info(QuantizationInfo(qasymm.uniform().scale, -qasymm.uniform().offset));
@@ -146,7 +164,7 @@ void CLLSTMLayerQuantized::configure(const ICLTensor *input,
     // Run gemmlowp
     _memory_group.manage(&_output_highp);
     _output_highp.allocator()->init(TensorInfo(TensorShape(4 * output_size, batch_size), 1, DataType::S32));
-    _gemmlowp.configure(&_input, &_weights_transposed, nullptr, &_output_highp);
+    _gemmlowp.configure(compile_context, &_input, &_weights_transposed, nullptr, &_output_highp);
     _input.allocator()->allocate();
 
     // Set the offset back
@@ -159,11 +177,16 @@ void CLLSTMLayerQuantized::configure(const ICLTensor *input,
     const float multiplier        = 4096.f * qasymm.uniform().scale * qweights.uniform().scale;
     int         output_multiplier = 0;
     int         output_shift      = 0;
-
-    quantization::calculate_quantized_multiplier_less_than_one(multiplier, &output_multiplier, &output_shift);
+    quantization::calculate_quantized_multiplier(multiplier, &output_multiplier, &output_shift);
 
     _memory_group.manage(&_output_lowp);
-    _output_stage.configure(&_output_highp, &_bias, &_output_lowp, output_multiplier, output_shift);
+
+    GEMMLowpOutputStageInfo info{};
+    info.type                = GEMMLowpOutputStageType::QUANTIZE_DOWN_FIXEDPOINT;
+    info.gemmlowp_multiplier = output_multiplier;
+    info.gemmlowp_shift      = output_shift;
+    info.output_data_type    = DataType::QSYMM16;
+    _output_stage.configure(compile_context, &_output_highp, &_bias, &_output_lowp, info);
     _output_highp.allocator()->allocate();
     _bias.allocator()->allocate();
 
@@ -171,86 +194,86 @@ void CLLSTMLayerQuantized::configure(const ICLTensor *input,
     if(batch_size > 1)
     {
         _memory_group.manage(&_input_gate_input);
-        _slice_input_tensor.configure(&_output_lowp, &_input_gate_input, { 0, 0 }, { output_size, batch_size });
+        _slice_input_tensor.configure(compile_context, &_output_lowp, &_input_gate_input, { 0, 0 }, { output_size, batch_size });
         _memory_group.manage(&_forget_gate_input);
-        _slice_forget_tensor.configure(&_output_lowp, &_forget_gate_input, { output_size, 0 }, { 2 * output_size, batch_size });
+        _slice_forget_tensor.configure(compile_context, &_output_lowp, &_forget_gate_input, { output_size, 0 }, { 2 * output_size, batch_size });
         _memory_group.manage(&_input_modulation_gate_input);
-        _slice_cell_tensor.configure(&_output_lowp, &_input_modulation_gate_input, { 2 * output_size, 0 }, { 3 * output_size, batch_size });
+        _slice_cell_tensor.configure(compile_context, &_output_lowp, &_input_modulation_gate_input, { 2 * output_size, 0 }, { 3 * output_size, batch_size });
         _memory_group.manage(&_output_gate_input);
-        _slice_output_tensor.configure(&_output_lowp, &_output_gate_input, { 3 * output_size, 0 }, { 4 * output_size, batch_size });
+        _slice_output_tensor.configure(compile_context, &_output_lowp, &_output_gate_input, { 3 * output_size, 0 }, { 4 * output_size, batch_size });
         _output_lowp.allocator()->allocate();
     }
     else
     {
         _memory_group.manage(&_input_gate_input);
-        _slice_input_tensor.configure(&_output_lowp, &_input_gate_input, { 0 }, { output_size });
+        _slice_input_tensor.configure(compile_context, &_output_lowp, &_input_gate_input, { 0 }, { output_size });
         _memory_group.manage(&_forget_gate_input);
-        _slice_forget_tensor.configure(&_output_lowp, &_forget_gate_input, { output_size }, { 2 * output_size });
+        _slice_forget_tensor.configure(compile_context, &_output_lowp, &_forget_gate_input, { output_size }, { 2 * output_size });
         _memory_group.manage(&_input_modulation_gate_input);
-        _slice_cell_tensor.configure(&_output_lowp, &_input_modulation_gate_input, { 2 * output_size }, { 3 * output_size });
+        _slice_cell_tensor.configure(compile_context, &_output_lowp, &_input_modulation_gate_input, { 2 * output_size }, { 3 * output_size });
         _memory_group.manage(&_output_gate_input);
-        _slice_output_tensor.configure(&_output_lowp, &_output_gate_input, { 3 * output_size }, { 4 * output_size });
+        _slice_output_tensor.configure(compile_context, &_output_lowp, &_output_gate_input, { 3 * output_size }, { 4 * output_size });
         _output_lowp.allocator()->allocate();
     }
 
     // Forget gate
     _memory_group.manage(&_forget_gate_output);
     _forget_gate_output.allocator()->init(TensorInfo(_forget_gate_input.info()->tensor_shape(), 1, DataType::QSYMM16, qsymm_0));
-    _sigmoid_forget_gate.configure(&_forget_gate_input, &_forget_gate_output, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LOGISTIC));
+    _sigmoid_forget_gate.configure(compile_context, &_forget_gate_input, &_forget_gate_output, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LOGISTIC));
     _forget_gate_input.allocator()->allocate();
 
     // Input gate
     _memory_group.manage(&_input_gate_output);
     _input_gate_output.allocator()->init(TensorInfo(_input_gate_input.info()->tensor_shape(), 1, DataType::QSYMM16, qsymm_0));
-    _sigmoid_input_gate.configure(&_input_gate_input, &_input_gate_output, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LOGISTIC));
+    _sigmoid_input_gate.configure(compile_context, &_input_gate_input, &_input_gate_output, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LOGISTIC));
     _input_gate_input.allocator()->allocate();
 
     // Input modulation gate equation
     _memory_group.manage(&_input_modulation_gate_output);
     _input_modulation_gate_output.allocator()->init(TensorInfo(_input_modulation_gate_input.info()->tensor_shape(), 1, DataType::QSYMM16, qsymm_0));
-    _tanh_modulation_gate.configure(&_input_modulation_gate_input, &_input_modulation_gate_output, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::TANH, 1.0f, 1.0f));
+    _tanh_modulation_gate.configure(compile_context, &_input_modulation_gate_input, &_input_modulation_gate_output, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::TANH, 1.0f, 1.0f));
     _input_modulation_gate_input.allocator()->allocate();
 
     // Output gate
     _memory_group.manage(&_output_gate_output);
     _output_gate_output.allocator()->init(TensorInfo(_output_gate_input.info()->tensor_shape(), 1, DataType::QSYMM16, qsymm_0));
-    _sigmoid_output_gate.configure(&_output_gate_input, &_output_gate_output, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LOGISTIC));
+    _sigmoid_output_gate.configure(compile_context, &_output_gate_input, &_output_gate_output, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LOGISTIC));
     _output_gate_input.allocator()->allocate();
 
     // Long term memory
     _memory_group.manage(&_cell_state_tmp1);
     _cell_state_tmp1.allocator()->init(TensorInfo(_forget_gate_output.info()->tensor_shape(), 1, DataType::QSYMM16, qsymm_4));
-    _mul_forget_gate_cell_state.configure(&_forget_gate_output, cell_state_in, &_cell_state_tmp1, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO);
+    _mul_forget_gate_cell_state.configure(compile_context, &_forget_gate_output, cell_state_in, &_cell_state_tmp1, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO);
     _forget_gate_output.allocator()->allocate();
 
     _memory_group.manage(&_cell_state_tmp2);
     _cell_state_tmp2.allocator()->init(TensorInfo(_input_gate_output.info()->tensor_shape(), 1, DataType::QSYMM16, qsymm_4));
-    _mul_input_gate_input_mod_gate.configure(&_input_gate_output, &_input_modulation_gate_output, &_cell_state_tmp2, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO);
+    _mul_input_gate_input_mod_gate.configure(compile_context, &_input_gate_output, &_input_modulation_gate_output, &_cell_state_tmp2, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO);
     _input_modulation_gate_output.allocator()->allocate();
     _input_gate_output.allocator()->allocate();
 
-    _add_cell_state_tmps.configure(&_cell_state_tmp1, &_cell_state_tmp2, cell_state_out, ConvertPolicy::SATURATE);
+    _add_cell_state_tmps.configure(compile_context, &_cell_state_tmp1, &_cell_state_tmp2, cell_state_out, ConvertPolicy::SATURATE);
     _cell_state_tmp1.allocator()->allocate();
     _cell_state_tmp2.allocator()->allocate();
 
     // Short term memory
     _memory_group.manage(&_output_state_tmp);
     _output_state_tmp.allocator()->init(TensorInfo(cell_state_out->info()->tensor_shape(), 1, DataType::QSYMM16, qsymm_0));
-    _tanh_output_state.configure(cell_state_out, &_output_state_tmp, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::TANH, 1.0f, 1.0f));
+    _tanh_output_state.configure(compile_context, cell_state_out, &_output_state_tmp, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::TANH, 1.0f, 1.0f));
 
     _memory_group.manage(&_output_state_out_symm);
     _output_state_out_symm.allocator()->init(TensorInfo(_output_gate_output.info()->tensor_shape(), 1, DataType::QSYMM16, qsymm_0));
-    _mul_output_state_tmp_output_gate.configure(&_output_state_tmp, &_output_gate_output, &_output_state_out_symm, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO);
+    _mul_output_state_tmp_output_gate.configure(compile_context, &_output_state_tmp, &_output_gate_output, &_output_state_out_symm, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO);
     _output_gate_output.allocator()->allocate();
     _output_state_tmp.allocator()->allocate();
 
     // Requantize the output state from QSYMM16 to QASYMM8
     _memory_group.manage(&_output_state_out_f32);
     _output_state_out_f32.allocator()->init(TensorInfo(_output_state_out_symm.info()->tensor_shape(), 1, DataType::F32));
-    _dequantize.configure(&_output_state_out_symm, &_output_state_out_f32);
+    _dequantize.configure(compile_context, &_output_state_out_symm, &_output_state_out_f32);
     _output_state_out_symm.allocator()->allocate();
 
-    _quantize.configure(&_output_state_out_f32, output_state_out);
+    _quantize.configure(compile_context, &_output_state_out_f32, output_state_out);
     _output_state_out_f32.allocator()->allocate();
 }
 
@@ -264,6 +287,7 @@ Status CLLSTMLayerQuantized::validate(const ITensorInfo *input,
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, input_to_input_weights, input_to_forget_weights, input_to_cell_weights, input_to_output_weights, recurrent_to_input_weights,
                                         recurrent_to_forget_weights, recurrent_to_cell_weights, recurrent_to_output_weights, input_gate_bias, forget_gate_bias, cell_bias, output_gate_bias, cell_state_in,
                                         output_state_in, cell_state_out, output_state_out);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_NOT_IN(input, DataType::QASYMM8);
 
     const int input_size  = input->dimension(0);
     const int batch_size  = input->dimension(1);
@@ -361,14 +385,20 @@ Status CLLSTMLayerQuantized::validate(const ITensorInfo *input,
     input_concatenated.set_quantization_info(QuantizationInfo(qasymm.uniform().scale, qasymm.uniform().offset));
     weights_transposed.set_quantization_info(QuantizationInfo(qweights.uniform().scale, qweights.uniform().offset));
 
-    // multiplier = (input_scale * weights_scale) / output_scale (2 ^ (-12))
     const TensorInfo output_lowp(output_highp.tensor_shape(), 1, DataType::QSYMM16, qsymm_3);
 
-    const float multiplier = 4096.f * qasymm.uniform().scale * qweights.uniform().scale;
-    ARM_COMPUTE_UNUSED(multiplier);
-    ARM_COMPUTE_RETURN_ERROR_ON(multiplier > 1.0f);
+    const float multiplier        = 4096.f * qasymm.uniform().scale * qweights.uniform().scale;
+    int         output_multiplier = 0;
+    int         output_shift      = 0;
+    ARM_COMPUTE_RETURN_ON_ERROR(quantization::calculate_quantized_multiplier(multiplier, &output_multiplier, &output_shift));
+
     // _output_stage
-    ARM_COMPUTE_RETURN_ON_ERROR(CLGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPoint::validate(&output_highp, &bias_concatenated, &output_lowp));
+    GEMMLowpOutputStageInfo info{};
+    info.type                = GEMMLowpOutputStageType::QUANTIZE_DOWN_FIXEDPOINT;
+    info.gemmlowp_multiplier = output_multiplier;
+    info.gemmlowp_shift      = output_shift;
+    info.output_data_type    = DataType::QSYMM16;
+    ARM_COMPUTE_RETURN_ON_ERROR(CLGEMMLowpOutputStage::validate(&output_highp, &bias_concatenated, &output_lowp, info));
 
     TensorInfo input_gate_input;
     TensorInfo forget_gate_input;
@@ -504,7 +534,7 @@ void CLLSTMLayerQuantized::run()
     _tanh_output_state.run();
     _mul_output_state_tmp_output_gate.run();
 
-    // Requantize output state from QSYMM16 to QASYMM16
+    // Requantize output state from QSYMM16 to QASYMM8
     _dequantize.run();
     _quantize.run();
 }

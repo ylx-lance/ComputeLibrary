@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -51,8 +51,9 @@ namespace
 RelativeTolerance<float>           rel_tolerance_f32(0.05f);   /**< Tolerance value for comparing reference's output against implementation's output for DataType::F32 */
 constexpr AbsoluteTolerance<float> abs_tolerance_f32(0.0001f); /**< Tolerance value for comparing reference's output against implementation's output for DataType::F32 */
 #ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
-constexpr AbsoluteTolerance<float> tolerance_f16(0.01f); /**< Tolerance value for comparing reference's output against implementation's output for DataType::F16 */
-#endif                                                   // __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+constexpr AbsoluteTolerance<float> abs_tolerance_f16(0.015f); /**< Tolerance value for comparing reference's output against implementation's output for DataType::F16 */
+#endif                                                       // __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+
 const auto act_infos = framework::dataset::make("ActivationInfo",
 {
     ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU),
@@ -71,69 +72,34 @@ TEST_SUITE(BatchNormalizationLayer)
 template <typename T>
 using NEBatchNormalizationLayerFixture = BatchNormalizationLayerValidationFixture<Tensor, Accessor, NEBatchNormalizationLayer, T>;
 
-DATA_TEST_CASE(Configuration, framework::DatasetMode::ALL, combine(combine(combine(datasets::SmallRandomBatchNormalizationLayerDataset(),
-                                                                                   combine(framework::dataset::make("UseBeta", { false, true }), framework::dataset::make("UseGamma", { false, true }))),
-                                                                           framework::dataset::make("DataType", { DataType::F32 })),
-                                                                   framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC })),
-               shape0, shape1, epsilon, use_beta, use_gamma, dt, data_layout)
-{
-    TensorShape src_dst_shapes = shape0;
-    if(data_layout == DataLayout::NHWC)
-    {
-        permute(src_dst_shapes, PermutationVector(2U, 0U, 1U));
-    }
-
-    // Create tensors
-    Tensor src   = create_tensor<Tensor>(src_dst_shapes, dt, 1, QuantizationInfo(), data_layout);
-    Tensor dst   = create_tensor<Tensor>(src_dst_shapes, dt, 1, QuantizationInfo(), data_layout);
-    Tensor mean  = create_tensor<Tensor>(shape1, dt, 1);
-    Tensor var   = create_tensor<Tensor>(shape1, dt, 1);
-    Tensor beta  = create_tensor<Tensor>(shape1, dt, 1);
-    Tensor gamma = create_tensor<Tensor>(shape1, dt, 1);
-
-    // Create and Configure function
-    NEBatchNormalizationLayer norm;
-    Tensor                   *beta_ptr  = use_beta ? &beta : nullptr;
-    Tensor                   *gamma_ptr = use_gamma ? &gamma : nullptr;
-    norm.configure(&src, &dst, &mean, &var, beta_ptr, gamma_ptr, epsilon);
-
-    // Validate valid region
-    const ValidRegion valid_region = shape_to_valid_region(src_dst_shapes);
-    validate(dst.info()->valid_region(), valid_region);
-}
-
 // *INDENT-OFF*
 // clang-format off
 DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(zip(
-               framework::dataset::make("InputInfo", { TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),
-                                                       TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32),    // Window shrink
+               framework::dataset::make("InputInfo", { TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32),
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),    // Mismatching data types
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),    // Mismatching data types
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),    // Invalid mean/var/beta/gamma shape
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),    // Fused activation's a < b
                                                      }),
-               framework::dataset::make("OutputInfo",{ TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),
-                                                       TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32),
+               framework::dataset::make("OutputInfo",{ TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32),
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F16),
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),
                                                      })),
                framework::dataset::make("MVBGInfo",{ TensorInfo(TensorShape(2U), 1, DataType::F32),
-                                                     TensorInfo(TensorShape(2U), 1, DataType::F32),
                                                      TensorInfo(TensorShape(2U), 1, DataType::F16),
                                                      TensorInfo(TensorShape(2U), 1, DataType::F32),
                                                      TensorInfo(TensorShape(5U), 1, DataType::F32),
                                                      TensorInfo(TensorShape(2U), 1, DataType::F32),
                                                    })),
                framework::dataset::make("ActivationLayerInfo",{ ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU),
-                                                    ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU),
                                                      ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::BOUNDED_RELU, 6.f),
                                                      ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::BOUNDED_RELU, 6.f),
                                                      ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LU_BOUNDED_RELU, 6.f),
                                                      ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LU_BOUNDED_RELU, 2.f, 6.f),
                                                    })),
-               framework::dataset::make("Expected", { true, false, false, false, false, false})),
+               framework::dataset::make("Expected", { true, false, false, false, false})),
                input_info, output_info, mvbg_info, act_info, expected)
 {
     const auto &mean_info = mvbg_info;
@@ -183,7 +149,7 @@ FIXTURE_DATA_TEST_CASE(RandomSmall, NEBatchNormalizationLayerFixture<half>, fram
                                                                                                                        framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC })))
 {
     // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16, 0);
+    validate(Accessor(_target), _reference, abs_tolerance_f16, 0);
 }
 
 FIXTURE_DATA_TEST_CASE(RandomLarge, NEBatchNormalizationLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(combine(datasets::LargeRandomBatchNormalizationLayerDataset(),
@@ -194,7 +160,7 @@ FIXTURE_DATA_TEST_CASE(RandomLarge, NEBatchNormalizationLayerFixture<half>, fram
                                                                                                                        framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC })))
 {
     // Validate output
-    validate(Accessor(_target), _reference, tolerance_f16, 0);
+    validate(Accessor(_target), _reference, abs_tolerance_f16, 0);
 }
 TEST_SUITE_END() // FP16
 #endif           /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
@@ -254,7 +220,7 @@ TEST_SUITE_END() // FP32
 TEST_SUITE_END() // Float
 
 TEST_SUITE_END() // BatchNormalizationLayerFusion
-TEST_SUITE_END() // NEON
+TEST_SUITE_END() // Neon
 } // namespace validation
 } // namespace test
 } // namespace arm_compute

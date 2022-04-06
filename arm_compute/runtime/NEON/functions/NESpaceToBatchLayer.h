@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,22 +21,24 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NESPACETOBATCHLAYER_H__
-#define __ARM_COMPUTE_NESPACETOBATCHLAYER_H__
+#ifndef ARM_COMPUTE_NESPACETOBATCHLAYER_H
+#define ARM_COMPUTE_NESPACETOBATCHLAYER_H
 
 #include "arm_compute/runtime/IFunction.h"
 
-#include "arm_compute/core/NEON/kernels/NEMemsetKernel.h"
-#include "arm_compute/core/NEON/kernels/NESpaceToBatchLayerKernel.h"
 #include "arm_compute/core/Types.h"
+#include <memory>
 
 namespace arm_compute
 {
 class ITensor;
+class ITensorInfo;
+class NESpaceToBatchLayerKernel;
+class NEFill;
 
-/** Basic function to spatial divide a tensor. This function calls the following NEON kernels/functions:
+/** Basic function to spatial divide a tensor. This function calls the following kernels/functions:
  *
- *  -# @ref NEMemsetKernel
+ *  -# @ref NEFill
  *  -# @ref NESpaceToBatchLayerKernel
  */
 class NESpaceToBatchLayer : public IFunction
@@ -53,30 +55,39 @@ public:
     /** Allow instances of this class to be moved */
     NESpaceToBatchLayer &operator=(NESpaceToBatchLayer &&) = default;
     /** Default destructor */
-    virtual ~NESpaceToBatchLayer() = default;
+    ~NESpaceToBatchLayer();
     /** Set the input and output tensors.
      *
-     * @param[in]  input       Tensor input. Supported tensor rank: 4. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32.
-     * @param[in]  block_shape 1-D tensor with shape [M]. Data types supported: S32
-     * @param[in]  paddings    2-D tensor with shape [2, M]. Data types supported: S32
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src0      |src1      |src2      |dst       |
+     * |:---------|:---------|:---------|:---------|
+     * |All       |S32       |S32       |All       |
+     *
+     * @param[in]  input       Tensor input. Supported tensor rank: 4. Data types supported: All.
+     * @param[in]  block_shape 1-D tensor with shape [M]. Supported M: 2. Data types supported: S32
+     * @param[in]  paddings    2-D tensor with shape [2, M] (First dimension is the fastest-changing dimension). Supported M: 2. Data types supported: S32
      * @param[out] output      Tensor output. Data types supported: same as @p input
      */
     void configure(const ITensor *input, const ITensor *block_shape, const ITensor *paddings, ITensor *output);
     /** Set the input and output tensors. (Static block shape and paddings)
      *
-     * @param[in]  input         Tensor input. Supported tensor rank: 4. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32.
+     * @param[in]  input         Tensor input. Supported tensor rank: 4. Data types supported: All.
      * @param[in]  block_shape_x Block shape x value.
      * @param[in]  block_shape_y Block shape y value.
-     * @param[in]  padding_left  The left padding of the output tensor.
-     * @param[in]  padding_right The right padding of the output tensor.
+     * @param[in]  padding_left  The padding at the beginning of every dimension of the output tensor.
+     * @param[in]  padding_right The padding at the end of every dimension of the output tensor.
      * @param[out] output        Tensor output. Data types supported: same as @p input
      */
     void configure(const ITensor *input, const int block_shape_x, const int block_shape_y, const Size2D &padding_left, const Size2D &padding_right, ITensor *output);
     /** Static function to check if given info will lead to a valid configuration of @ref NESpaceToBatchLayer
      *
-     * @param[in] input       Tensor input info. Supported tensor rank: 4. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32.
-     * @param[in] block_shape block shape tensor info with shape [M]. Data types supported: S32
-     * @param[in] paddings    paddings tensor info with shape [2, M]. Data types supported: S32
+     * @param[in] input       Tensor input info. Supported tensor rank: 4. Data types supported: All.
+     * @param[in] block_shape 1-D tensor with shape [M]. Supported M: 2. Data types supported: S32
+     * @param[in] paddings    2-D tensor with shape [2, M] (First dimension is the fastest-changing dimension). Supported M: 2. Data types supported: S32
      * @param[in] output      Tensor output info. Data types supported: same as @p input
      *
      * @return a status
@@ -84,11 +95,11 @@ public:
     static Status validate(const ITensorInfo *input, const ITensorInfo *block_shape, const ITensorInfo *paddings, const ITensorInfo *output);
     /** Static function to check if given info will lead to a valid configuration of @ref NESpaceToBatchLayer (Static block shape and paddings)
      *
-     * @param[in] input         Tensor input info. Supported tensor rank: 4. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32.
+     * @param[in] input         Tensor input info. Supported tensor rank: 4. Data types supported: All.
      * @param[in] block_shape_x Block shape x value.
      * @param[in] block_shape_y Block shape y value.
-     * @param[in] padding_left  The left padding of the output tensor.
-     * @param[in] padding_right The right padding of the output tensor.
+     * @param[in] padding_left  The padding at the beginning of every dimension of the output tensor.
+     * @param[in] padding_right The padding at the end of every dimension of the output tensor.
      * @param[in] output        Tensor output info. Data types supported: same as @p input
      *
      * @return a status
@@ -99,9 +110,9 @@ public:
     void run() override;
 
 private:
-    NESpaceToBatchLayerKernel _space_to_batch_kernel; /**< SpaceToBatch kernel to run */
-    NEMemsetKernel            _memset_kernel;         /**< Memset kernel to run */
-    bool                      _has_padding;           /**< Flag to check if the output has padding */
+    std::unique_ptr<NESpaceToBatchLayerKernel> _space_to_batch_kernel; /**< SpaceToBatch kernel to run */
+    std::unique_ptr<NEFill>                    _fill_f;                /**< Fill function to run */
+    bool                                       _has_padding;           /**< Flag to check if the output has padding */
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_NESPACETOBATCHLAYER_H__ */
+#endif /* ARM_COMPUTE_NESPACETOBATCHLAYER_H */

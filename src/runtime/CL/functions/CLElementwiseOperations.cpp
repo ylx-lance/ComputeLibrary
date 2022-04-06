@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,120 +23,331 @@
  */
 #include "arm_compute/runtime/CL/functions/CLElementwiseOperations.h"
 
+#include "arm_compute/core/CL/CLKernelLibrary.h"
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/CL/kernels/CLElementwiseOperationKernel.h"
-#include "support/ToolchainSupport.h"
+#include "arm_compute/core/Types.h"
+#include "src/core/CL/ICLKernel.h"
 
-#include <utility>
+#include "src/gpu/cl/operators/ClAdd.h"
+#include "src/gpu/cl/operators/ClElementwiseOperations.h"
+#include "src/gpu/cl/operators/ClSub.h"
 
 namespace arm_compute
 {
-namespace
+struct CLArithmeticAddition::Impl
 {
-void configure_border_handler(CLFillBorderKernel &border_handler, BorderSize border_size, ICLTensor *input1, ICLTensor *input2, const ICLTensor *output)
-{
-    if(output->info()->dimension(0) > 1)
-    {
-        ICLTensor *broadcasted_info = (input1->info()->dimension(0) == 1) ? input1 : input2;
+    const ICLTensor               *src_0{ nullptr };
+    const ICLTensor               *src_1{ nullptr };
+    ICLTensor                     *dst{ nullptr };
+    std::unique_ptr<opencl::ClAdd> op{ nullptr };
+};
 
-        if(broadcasted_info->info()->dimension(0) == 1)
-        {
-            border_handler.configure(broadcasted_info, border_size, BorderMode::REPLICATE);
-        }
-    }
+CLArithmeticAddition::CLArithmeticAddition()
+    : _impl(std::make_unique<Impl>())
+{
 }
-} // namespace
+CLArithmeticAddition::CLArithmeticAddition(CLArithmeticAddition &&) = default;
+CLArithmeticAddition &CLArithmeticAddition::operator=(CLArithmeticAddition &&) = default;
+CLArithmeticAddition::~CLArithmeticAddition()                                  = default;
 
-void CLArithmeticAddition::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output, ConvertPolicy policy)
+void CLArithmeticAddition::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output, ConvertPolicy policy, const ActivationLayerInfo &act_info)
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLSaturatedArithmeticOperationKernel>();
-    k->configure(ArithmeticOperation::ADD, input1, input2, output, policy);
-    _kernel = std::move(k);
-    configure_border_handler(_border_handler, _kernel->border_size(), input1, input2, output);
+    configure(CLKernelLibrary::get().get_compile_context(), input1, input2, output, policy, act_info);
 }
 
-Status CLArithmeticAddition::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, ConvertPolicy policy)
+void CLArithmeticAddition::configure(const CLCompileContext &compile_context, const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output, ConvertPolicy policy,
+                                     const ActivationLayerInfo &act_info)
 {
-    return CLSaturatedArithmeticOperationKernel::validate(ArithmeticOperation::ADD, input1, input2, output, policy);
+    _impl->src_0 = input1;
+    _impl->src_1 = input2;
+    _impl->dst   = output;
+    _impl->op    = std::make_unique<opencl::ClAdd>();
+    _impl->op->configure(compile_context, input1->info(), input2->info(), output->info(), policy, act_info);
 }
 
-void CLArithmeticSubtraction::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output, ConvertPolicy policy)
+Status CLArithmeticAddition::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, ConvertPolicy policy, const ActivationLayerInfo &act_info)
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLSaturatedArithmeticOperationKernel>();
-    k->configure(ArithmeticOperation::SUB, input1, input2, output, policy);
-    _kernel = std::move(k);
-    configure_border_handler(_border_handler, _kernel->border_size(), input1, input2, output);
+    return opencl::ClAdd::validate(input1, input2, output, policy, act_info);
 }
 
-Status CLArithmeticSubtraction::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, ConvertPolicy policy)
+void CLArithmeticAddition::run()
 {
-    ARM_COMPUTE_UNUSED(policy);
-    return CLSaturatedArithmeticOperationKernel::validate(ArithmeticOperation::SUB, input1, input2, output, policy);
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC_0, _impl->src_0);
+    pack.add_tensor(TensorType::ACL_SRC_1, _impl->src_1);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+
+    _impl->op->run(pack);
 }
 
-void CLArithmeticDivision::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output)
+struct CLArithmeticSubtraction::Impl
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLArithmeticOperationKernel>();
-    k->configure(ArithmeticOperation::DIV, input1, input2, output);
-    _kernel = std::move(k);
-    configure_border_handler(_border_handler, _kernel->border_size(), input1, input2, output);
+    const ICLTensor               *src_0{ nullptr };
+    const ICLTensor               *src_1{ nullptr };
+    ICLTensor                     *dst{ nullptr };
+    std::unique_ptr<opencl::ClSub> op{ nullptr };
+};
+
+CLArithmeticSubtraction::CLArithmeticSubtraction()
+    : _impl(std::make_unique<Impl>())
+{
+}
+CLArithmeticSubtraction::CLArithmeticSubtraction(CLArithmeticSubtraction &&) = default;
+CLArithmeticSubtraction &CLArithmeticSubtraction::operator=(CLArithmeticSubtraction &&) = default;
+CLArithmeticSubtraction::~CLArithmeticSubtraction()                                     = default;
+
+void CLArithmeticSubtraction::configure(const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output, ConvertPolicy policy, const ActivationLayerInfo &act_info)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input1, input2, output, policy, act_info);
 }
 
-Status CLArithmeticDivision::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output)
+void CLArithmeticSubtraction::configure(const CLCompileContext &compile_context, const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output, ConvertPolicy policy,
+                                        const ActivationLayerInfo &act_info)
 {
-    return CLArithmeticOperationKernel::validate(ArithmeticOperation::DIV, input1, input2, output);
+    _impl->src_0 = input1;
+    _impl->src_1 = input2;
+    _impl->dst   = output;
+    _impl->op    = std::make_unique<opencl::ClSub>();
+    _impl->op->configure(compile_context, input1->info(), input2->info(), output->info(), policy, act_info);
 }
 
-void CLElementwiseMax::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output)
+Status CLArithmeticSubtraction::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, ConvertPolicy policy, const ActivationLayerInfo &act_info)
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLArithmeticOperationKernel>();
-    k->configure(ArithmeticOperation::MAX, input1, input2, output);
-    _kernel = std::move(k);
-    configure_border_handler(_border_handler, _kernel->border_size(), input1, input2, output);
+    return opencl::ClSub::validate(input1, input2, output, policy, act_info);
 }
 
-Status CLElementwiseMax::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output)
+void CLArithmeticSubtraction::run()
 {
-    return CLArithmeticOperationKernel::validate(ArithmeticOperation::MAX, input1, input2, output);
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC_0, _impl->src_0);
+    pack.add_tensor(TensorType::ACL_SRC_1, _impl->src_1);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+
+    _impl->op->run(pack);
 }
 
-void CLElementwiseMin::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output)
+struct CLArithmeticDivision::Impl
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLArithmeticOperationKernel>();
-    k->configure(ArithmeticOperation::MIN, input1, input2, output);
-    _kernel = std::move(k);
-    configure_border_handler(_border_handler, _kernel->border_size(), input1, input2, output);
+    const ICLTensor                               *src_0{ nullptr };
+    const ICLTensor                               *src_1{ nullptr };
+    ICLTensor                                     *dst{ nullptr };
+    std::unique_ptr<opencl::ClElementwiseDivision> op{ nullptr };
+};
+
+CLArithmeticDivision::CLArithmeticDivision()
+    : _impl(std::make_unique<Impl>())
+{
+}
+CLArithmeticDivision::CLArithmeticDivision(CLArithmeticDivision &&) = default;
+CLArithmeticDivision &CLArithmeticDivision::operator=(CLArithmeticDivision &&) = default;
+CLArithmeticDivision::~CLArithmeticDivision()                                  = default;
+
+void CLArithmeticDivision::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output, const ActivationLayerInfo &act_info)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input1, input2, output, act_info);
 }
 
-Status CLElementwiseMin::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output)
+void CLArithmeticDivision::configure(const CLCompileContext &compile_context, const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output, const ActivationLayerInfo &act_info)
 {
-    return CLArithmeticOperationKernel::validate(ArithmeticOperation::MIN, input1, input2, output);
+    _impl->src_0 = input1;
+    _impl->src_1 = input2;
+    _impl->dst   = output;
+    _impl->op    = std::make_unique<opencl::ClElementwiseDivision>();
+    _impl->op->configure(compile_context, input1->info(), input2->info(), output->info(), act_info);
 }
 
-void CLElementwiseSquaredDiff::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output)
+Status CLArithmeticDivision::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, const ActivationLayerInfo &act_info)
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLArithmeticOperationKernel>();
-    k->configure(ArithmeticOperation::SQUARED_DIFF, input1, input2, output);
-    _kernel = std::move(k);
-    configure_border_handler(_border_handler, _kernel->border_size(), input1, input2, output);
+    return opencl::ClElementwiseDivision::validate(input1, input2, output, act_info);
 }
 
-Status CLElementwiseSquaredDiff::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output)
+void CLArithmeticDivision::run()
 {
-    return CLArithmeticOperationKernel::validate(ArithmeticOperation::SQUARED_DIFF, input1, input2, output);
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC_0, _impl->src_0);
+    pack.add_tensor(TensorType::ACL_SRC_1, _impl->src_1);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+
+    _impl->op->run(pack);
 }
 
-void CLElementwisePower::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output)
+struct CLElementwiseMax::Impl
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLArithmeticOperationKernel>();
-    k->configure(ArithmeticOperation::POWER, input1, input2, output);
-    _kernel = std::move(k);
-    configure_border_handler(_border_handler, _kernel->border_size(), input1, input2, output);
+    const ICLTensor                          *src_0{ nullptr };
+    const ICLTensor                          *src_1{ nullptr };
+    ICLTensor                                *dst{ nullptr };
+    std::unique_ptr<opencl::ClElementwiseMax> op{ nullptr };
+};
+
+CLElementwiseMax::CLElementwiseMax()
+    : _impl(std::make_unique<Impl>())
+{
+}
+CLElementwiseMax::CLElementwiseMax(CLElementwiseMax &&) = default;
+CLElementwiseMax &CLElementwiseMax::operator=(CLElementwiseMax &&) = default;
+CLElementwiseMax::~CLElementwiseMax()                              = default;
+
+void CLElementwiseMax::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output, const ActivationLayerInfo &act_info)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input1, input2, output, act_info);
 }
 
-Status CLElementwisePower::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output)
+void CLElementwiseMax::configure(const CLCompileContext &compile_context, ICLTensor *input1, ICLTensor *input2, ICLTensor *output, const ActivationLayerInfo &act_info)
 {
-    return CLArithmeticOperationKernel::validate(ArithmeticOperation::POWER, input1, input2, output);
+    _impl->src_0 = input1;
+    _impl->src_1 = input2;
+    _impl->dst   = output;
+    _impl->op    = std::make_unique<opencl::ClElementwiseMax>();
+    _impl->op->configure(compile_context, input1->info(), input2->info(), output->info(), act_info);
 }
 
+Status CLElementwiseMax::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, const ActivationLayerInfo &act_info)
+{
+    return opencl::ClElementwiseMax::validate(input1, input2, output, act_info);
+}
+
+void CLElementwiseMax::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC_0, _impl->src_0);
+    pack.add_tensor(TensorType::ACL_SRC_1, _impl->src_1);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+
+    _impl->op->run(pack);
+}
+
+struct CLElementwiseMin::Impl
+{
+    const ICLTensor                          *src_0{ nullptr };
+    const ICLTensor                          *src_1{ nullptr };
+    ICLTensor                                *dst{ nullptr };
+    std::unique_ptr<opencl::ClElementwiseMin> op{ nullptr };
+};
+
+CLElementwiseMin::CLElementwiseMin()
+    : _impl(std::make_unique<Impl>())
+{
+}
+CLElementwiseMin::CLElementwiseMin(CLElementwiseMin &&) = default;
+CLElementwiseMin &CLElementwiseMin::operator=(CLElementwiseMin &&) = default;
+CLElementwiseMin::~CLElementwiseMin()                              = default;
+
+void CLElementwiseMin::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output, const ActivationLayerInfo &act_info)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input1, input2, output, act_info);
+}
+
+void CLElementwiseMin::configure(const CLCompileContext &compile_context, ICLTensor *input1, ICLTensor *input2, ICLTensor *output, const ActivationLayerInfo &act_info)
+{
+    _impl->src_0 = input1;
+    _impl->src_1 = input2;
+    _impl->dst   = output;
+    _impl->op    = std::make_unique<opencl::ClElementwiseMin>();
+    _impl->op->configure(compile_context, input1->info(), input2->info(), output->info(), act_info);
+}
+
+Status CLElementwiseMin::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, const ActivationLayerInfo &act_info)
+{
+    return opencl::ClElementwiseMin::validate(input1, input2, output, act_info);
+}
+
+void CLElementwiseMin::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC_0, _impl->src_0);
+    pack.add_tensor(TensorType::ACL_SRC_1, _impl->src_1);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+
+    _impl->op->run(pack);
+}
+
+struct CLElementwiseSquaredDiff::Impl
+{
+    const ICLTensor                                  *src_0{ nullptr };
+    const ICLTensor                                  *src_1{ nullptr };
+    ICLTensor                                        *dst{ nullptr };
+    std::unique_ptr<opencl::ClElementwiseSquaredDiff> op{ nullptr };
+};
+
+CLElementwiseSquaredDiff::CLElementwiseSquaredDiff()
+    : _impl(std::make_unique<Impl>())
+{
+}
+CLElementwiseSquaredDiff::CLElementwiseSquaredDiff(CLElementwiseSquaredDiff &&) = default;
+CLElementwiseSquaredDiff &CLElementwiseSquaredDiff::operator=(CLElementwiseSquaredDiff &&) = default;
+CLElementwiseSquaredDiff::~CLElementwiseSquaredDiff()                                      = default;
+
+void CLElementwiseSquaredDiff::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output, const ActivationLayerInfo &act_info)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input1, input2, output, act_info);
+}
+
+void CLElementwiseSquaredDiff::configure(const CLCompileContext &compile_context, ICLTensor *input1, ICLTensor *input2, ICLTensor *output, const ActivationLayerInfo &act_info)
+{
+    _impl->src_0 = input1;
+    _impl->src_1 = input2;
+    _impl->dst   = output;
+    _impl->op    = std::make_unique<opencl::ClElementwiseSquaredDiff>();
+    _impl->op->configure(compile_context, input1->info(), input2->info(), output->info(), act_info);
+}
+
+Status CLElementwiseSquaredDiff::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, const ActivationLayerInfo &act_info)
+{
+    return opencl::ClElementwiseSquaredDiff::validate(input1, input2, output, act_info);
+}
+
+void CLElementwiseSquaredDiff::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC_0, _impl->src_0);
+    pack.add_tensor(TensorType::ACL_SRC_1, _impl->src_1);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+
+    _impl->op->run(pack);
+}
+
+struct CLElementwisePower::Impl
+{
+    const ICLTensor                            *src_0{ nullptr };
+    const ICLTensor                            *src_1{ nullptr };
+    ICLTensor                                  *dst{ nullptr };
+    std::unique_ptr<opencl::ClElementwisePower> op{ nullptr };
+};
+
+CLElementwisePower::CLElementwisePower()
+    : _impl(std::make_unique<Impl>())
+{
+}
+CLElementwisePower::CLElementwisePower(CLElementwisePower &&) = default;
+CLElementwisePower &CLElementwisePower::operator=(CLElementwisePower &&) = default;
+CLElementwisePower::~CLElementwisePower()                                = default;
+
+void CLElementwisePower::configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output, const ActivationLayerInfo &act_info)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input1, input2, output, act_info);
+}
+
+void CLElementwisePower::configure(const CLCompileContext &compile_context, ICLTensor *input1, ICLTensor *input2, ICLTensor *output, const ActivationLayerInfo &act_info)
+{
+    _impl->src_0 = input1;
+    _impl->src_1 = input2;
+    _impl->dst   = output;
+    _impl->op    = std::make_unique<opencl::ClElementwisePower>();
+    _impl->op->configure(compile_context, input1->info(), input2->info(), output->info(), act_info);
+}
+
+Status CLElementwisePower::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, const ActivationLayerInfo &act_info)
+{
+    return opencl::ClElementwisePower::validate(input1, input2, output, act_info);
+}
+
+void CLElementwisePower::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC_0, _impl->src_0);
+    pack.add_tensor(TensorType::ACL_SRC_1, _impl->src_1);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+
+    _impl->op->run(pack);
+}
 } // namespace arm_compute

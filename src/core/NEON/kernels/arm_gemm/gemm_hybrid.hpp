@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,16 +23,15 @@
  */
 #pragma once
 
-#include <assert.h>
-
 #include <algorithm>
+#include <cassert>
 
 #include "arm_gemm.hpp"
+#include "bias_adder.hpp"
 #include "ndrange.hpp"
-#include "utils.hpp"
-
-#include "mergeresults.hpp"
+#include "performance_parameters.hpp"
 #include "transform.hpp"
+#include "utils.hpp"
 
 #ifdef CYCLE_PROFILING
 #include "profiler.hpp"
@@ -56,9 +55,7 @@ class GemmHybrid : public GemmCommon<To, Tr> {
     const unsigned int _nbatches;
     const unsigned int _nmulti;
 
-    const bool _trB;
-
-    const Tr _beta;
+    const Activation _act;
 
     /* Blocking info */
     const unsigned int _k_block;
@@ -70,56 +67,59 @@ class GemmHybrid : public GemmCommon<To, Tr> {
 
     const NDRange<4> _window_range;
 
-    static unsigned int compute_k_block(const GemmArgs<Tr> &args) {
-        if (args._cfg && args._cfg->inner_block_size) {
-            return args._cfg->inner_block_size;
+    static unsigned int compute_k_block(const GemmArgs &args) {
+        // Some kernels don't support accumulate mode - these can't do K blocking at all.
+        if (!strategy::supports_accumulate()) {
+            return args._Ksize;
         }
 
-        const unsigned int L1_size = args._ci->get_L1_cache_size();
+        if (args._cfg && args._cfg->inner_block_size) {
+            return roundup(args._cfg->inner_block_size, strategy::k_unroll());
+        }
 
-        // k_block: Find out how much of the larger array can be loaded into half the cache.
-        // This should account for associative caches.
-        unsigned int k_block = (L1_size / 2) / (sizeof(Toi) * (std::max(strategy::out_width(), strategy::out_height())));
+        // Target block size (512 for FP32, scaling for other types).  Don't block until size reaches 1.5X this.
+        unsigned int target_block_size = 2048 / sizeof(To);
 
-        // Needs to be (at least a single) multiple of the K unroll level.
-        k_block /= strategy::k_unroll();
-        k_block = std::max(k_block, 1U) * strategy::k_unroll();
+        if (args._Ksize >= ((3 * target_block_size) / 2)) {
+            unsigned int target_blocks = iceildiv(args._Ksize, target_block_size);
 
-        // Now tune to presented problem size; this is how many blocks we need.
-        unsigned int numk_blocks = iceildiv(args._Ksize, k_block);
+            unsigned int block_size = iceildiv(args._Ksize, target_blocks);
 
-        // So divide the space equally into that many blocks.
-        k_block = iceildiv(args._Ksize, numk_blocks);
+            block_size = roundup(block_size, strategy::k_unroll());
 
-        // And round UP to the K unroll level required.
-        k_block = roundup(k_block, strategy::k_unroll());
+            return block_size;
+        }
 
-        return k_block;
+        return args._Ksize;
     }
 
-    static unsigned int compute_n_block(const GemmArgs<Tr> &args) {
+    // New N blocking strategy: if it's narrow, or much taller than it is wide, do the full width.  Otherwise do a
+    // single block.
+    static unsigned int compute_n_block(const GemmArgs &args) {
         if (args._cfg && args._cfg->outer_block_size) {
-            return args._cfg->outer_block_size;
+            unsigned int n_block = args._cfg->outer_block_size;
+
+            // Needs to be (at least a single) multiple of the kernel output width.
+            n_block /= strategy::out_width();
+            n_block = std::max(n_block, 1u) * strategy::out_width();
+
+            return n_block;
         }
 
-        const unsigned int k_block = compute_k_block(args);
-        const unsigned int L2_size = args._ci->get_L2_cache_size();
+        if (args._Nsize <= 64) {
+            return args._Nsize;
+        }
 
-        // n_block: Work out how many rows (of length k_block) will fit in the L2
-        // Don't allocate more than 90% of the L2 to allow for overheads, and subtract off the L1 contents.
-        unsigned int n_block = (((L2_size * 9) / 10) - (k_block * sizeof(Toi) * (strategy::out_width() + strategy::out_height()))) /
-                                 (sizeof(Toi) * k_block);
+        if ((args._Msize / args._Nsize) > 155) {
+            return args._Nsize;
+        }
 
-        // Needs to be (at least a single) multiple of the kernel output width.
-        n_block /= strategy::out_width();
-        n_block = std::max(n_block, 1U) * strategy::out_width();
+        // Go slightly wider if thread count and depth are small.
+        if ((args._Ksize <= 128) && (args._maxthreads <= 16)) {
+            return strategy::out_width() * 3;
+        }
 
-        // And tune to the presented problem size.
-        unsigned int numblocks = iceildiv(args._Nsize, n_block);
-        n_block = iceildiv(args._Nsize, numblocks);
-        n_block = roundup(n_block, strategy::out_width());
-
-        return n_block;
+        return strategy::out_width();
     }
 
 public:
@@ -127,16 +127,17 @@ public:
     GemmHybrid & operator= (GemmHybrid &) = delete;
 
     /* Constructor */
-    GemmHybrid(const GemmArgs<Tr> &args)
+    GemmHybrid(const GemmArgs &args)
               : _ci(args._ci), _Msize(args._Msize), _Nsize(args._Nsize), _Ksize(args._Ksize),
-                _nbatches(args._nbatches), _nmulti(args._nmulti), _trB(args._trB), _beta(args._beta),
+                _nbatches(args._nbatches), _nmulti(args._nmulti),
+                _act(args._act),
                 _k_block(compute_k_block(args)), _n_block(compute_n_block(args)),
                 _Mround(roundup(args._Msize, strategy::out_height())),
                 _window_range(iceildiv(args._Msize, strategy::out_height()), _nbatches, iceildiv(_Nsize, _n_block), _nmulti) { }
 
     // Interface implementation - Compulsory functions
-    unsigned int get_window_size() const override {
-        return _window_range.total_size();
+    ndrange_t get_window_size() const override {
+        return { _window_range.total_size() };
     }
 
     // This kernel can always be dynamically scheduled.
@@ -145,7 +146,7 @@ public:
     }
 
     // Execute
-    void execute(unsigned int start, unsigned int end, int threadid) override {
+    void execute(const ndcoord_t &work_range, const ndcoord_t &, int) override {
 #ifdef CYCLE_PROFILING
         profiler prof;
 #endif
@@ -163,7 +164,10 @@ public:
             unsigned int kmax   = std::min(k0 + _k_block, _Ksize);
             unsigned int kern_k = roundup(kmax-k0, strategy::k_unroll());
 
-            auto p = _window_range.iterator(start, end);
+            const bool first_pass = (k0 == 0);
+            const bool last_pass = (kmax == _Ksize);
+
+            auto p = _window_range.iterator(work_range.get_position(0), work_range.get_position_end(0));
 
             if (p.done()) {
                 return;
@@ -183,14 +187,23 @@ public:
                                      (n0 * kern_k);
 
 #ifdef CYCLE_PROFILING
-                auto p = prof.ScopedProfiler(PROFILE_KERNEL, (m_end - m_start) * kern_k * roundup(nmax-n0, strategy::out_width()));
+                auto p = prof.ScopedProfiler(PROFILE_KERNEL, (unsigned long)(m_end - m_start) * kern_k * roundup(nmax-n0, strategy::out_width()));
 #endif
 
                 strat.kernel(this->_Aptr + (multi * this->_A_multi_stride) + (batch * this->_A_batch_stride) + (m_start * this->_lda) + k0, this->_lda,
                              b_panel,
                              this->_Cptr + (multi * this->_C_multi_stride) + (batch * this->_C_batch_stride) + (m_start * this->_ldc) + n0, this->_ldc,
-                             (k0 == 0) ? _beta : static_cast<Tr>(1),
-                             (m_end - m_start), (nmax - n0), kmax-k0);
+                             (m_end - m_start), (nmax - n0), kmax-k0,
+                             (strategy::supports_bias() && first_pass && this->_bias) ? this->_bias + (multi * this->_bias_multi_stride) + n0 : nullptr,
+                             last_pass ? _act : Activation(), !first_pass);
+
+                // Add bias externally if needed
+                if (!strategy::supports_bias() && this->_bias && first_pass) {
+                    bias_adder(this->_Cptr + (multi * this->_C_multi_stride) + (batch * this->_C_batch_stride) + (m_start * this->_ldc) + n0, this->_ldc,
+                               this->_bias + (multi * this->_bias_multi_stride) + n0,
+                               (m_end - m_start), (nmax - n0));
+                }
+
             } while (p.next_dim1());
         }
     }
@@ -224,7 +237,7 @@ public:
                     const unsigned int size = roundup(xmax-x0, strategy::out_width()) * k_size;
 
                     strat.transforms.PrepareB( buffer, B + (multi * B_multi_stride), ldb,
-                                               x0, xmax, k0, kmax, _trB);
+                                               x0, xmax, k0, kmax);
 
                     buffer += size;
                 }
@@ -234,6 +247,39 @@ public:
 
     void set_pretransposed_B_data(void *in_buffer) override {
         _B_transposed = reinterpret_cast<Toi *>(in_buffer);
+    }
+
+    // Estimate cycles for given problem given provided parameters
+    static uint64_t estimate_cycles(const GemmArgs &args, const PerformanceParameters &params) {
+        // Note: Current hybrid kernels don't actually round up height (they
+        // have paths for each possible height).  Might need to make this
+        // configurable in future.
+        uint64_t total_macs = static_cast<uint64_t>(args._nbatches) * args._nmulti * args._Msize * roundup(args._Nsize, strategy::out_width()) * roundup(args._Ksize, strategy::k_unroll());
+
+        float mac_cycles = static_cast<float>(total_macs) / params.kernel_macs_cycle;
+
+        // TODO: A bit of a kludge here: current hybrid kernels incur extra
+        // overhead where the width is not a multiple of kernel width.  It's
+        // most noticable where the overall width is quite low, so add 15%
+        // penalty for such widths.
+        if ((args._Nsize < strategy::out_width()) || (args._Nsize > strategy::out_width() && args._Nsize < 2*strategy::out_width())) {
+            mac_cycles *= 1.15f;
+        }
+
+        uint64_t total_cycles = mac_cycles;
+
+        return total_cycles;
+    }
+
+    GemmConfig get_config() override {
+        GemmConfig c;
+
+        c.method = GemmMethod::GEMM_HYBRID;
+        c.inner_block_size = _k_block;
+        c.outer_block_size = _n_block;
+        c.filter = get_type_name<strategy>();
+
+        return c;
     }
 };
 

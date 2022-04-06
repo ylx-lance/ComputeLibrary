@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,26 +21,26 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLDECONVOLUTIONLAYERUPSAMPLE_H__
-#define __ARM_COMPUTE_CLDECONVOLUTIONLAYERUPSAMPLE_H__
+#ifndef ARM_COMPUTE_CLDECONVOLUTIONLAYERUPSAMPLE_H
+#define ARM_COMPUTE_CLDECONVOLUTIONLAYERUPSAMPLE_H
 
-#include "arm_compute/runtime/IFunction.h"
-
-#include "arm_compute/core/CL/kernels/CLDeconvolutionLayerUpsampleKernel.h"
-#include "arm_compute/core/CL/kernels/CLMemsetKernel.h"
 #include "arm_compute/core/Types.h"
-#include "arm_compute/runtime/CL/CLMemoryGroup.h"
+#include "arm_compute/runtime/CL/functions/CLFill.h"
 #include "arm_compute/runtime/IFunction.h"
-#include "arm_compute/runtime/IMemoryManager.h"
+
+#include <memory>
 
 namespace arm_compute
 {
 // Forward declarations
+class CLDeconvolutionLayerUpsampleKernel;
+class CLCompileContext;
 class ICLTensor;
+class ITensorInfo;
 
 /** Basic function to execute deconvolution upsample on OpenCL. This function calls the following OpenCL kernels and functions:
  *
- * -# @ref CLMemsetKernel
+ * -# @ref CLFill
  * -# @ref CLDeconvolutionLayerUpsampleKernel
  */
 class CLDeconvolutionLayerUpsample : public IFunction
@@ -57,18 +57,35 @@ public:
     /** Allow instances of this class to be moved */
     CLDeconvolutionLayerUpsample &operator=(CLDeconvolutionLayerUpsample &&) = default;
     /** Default destructor */
-    virtual ~CLDeconvolutionLayerUpsample() = default;
+    ~CLDeconvolutionLayerUpsample();
 
     /** Initialize the function's source, destination, interpolation type and border_mode.
      *
-     * @param[in, out] input  Source tensor. Data type supported: QASYMM8/F16/F32.
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |All            |All            |
+     *
+     * @param[in, out] input  Source tensor. Data type supported: All.
      * @param[out]     output Destination tensor. Data type supported: same as @p input.
      * @param[in]      info   Contains padding and policies to be used in the deconvolution.
      */
     void configure(ICLTensor *input, ICLTensor *output, const PadStrideInfo &info);
+    /** Initialize the function's source, destination, interpolation type and border_mode.
+     *
+     * @param[in]      compile_context The compile context to be used.
+     * @param[in, out] input           Source tensor. Data type supported: All.
+     * @param[out]     output          Destination tensor. Data type supported: same as @p input.
+     * @param[in]      info            Contains padding and policies to be used in the deconvolution.
+     */
+    void configure(const CLCompileContext &compile_context, ICLTensor *input, ICLTensor *output, const PadStrideInfo &info);
     /** Static function to check if given info will lead to a valid configuration of @ref CLDeconvolutionLayerUpsample
      *
-     * @param[in] input  Source tensor info. Data type supported: QASYMM8/F16/F32.
+     * @param[in] input  Source tensor info. Data type supported: All.
      * @param[in] output Destination tensor info. Data type supported: same as @p input.
      * @param[in] info   Contains padding and policies to be used in the deconvolution.
      *
@@ -80,9 +97,9 @@ public:
     void run() override;
 
 private:
-    CLDeconvolutionLayerUpsampleKernel _upsample;
-    CLMemsetKernel                     _memset;
-    ICLTensor                         *_output;
+    std::unique_ptr<CLDeconvolutionLayerUpsampleKernel> _upsample;
+    CLFill                                              _fill;
+    ICLTensor                                          *_output;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLDECONVOLUTIONLAYERUPSAMPLE_H__ */
+#endif /* ARM_COMPUTE_CLDECONVOLUTIONLAYERUPSAMPLE_H */

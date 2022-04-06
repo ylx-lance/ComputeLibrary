@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_LOGGING_PRINTER_H__
-#define __ARM_COMPUTE_LOGGING_PRINTER_H__
+#ifndef ARM_COMPUTE_LOGGING_PRINTER_H
+#define ARM_COMPUTE_LOGGING_PRINTER_H
 
 #include "support/Mutex.h"
 
@@ -55,7 +55,7 @@ public:
      */
     inline void print(const std::string &msg)
     {
-        std::lock_guard<arm_compute::Mutex> lock(_mtx);
+        arm_compute::lock_guard<arm_compute::Mutex> lock(_mtx);
         print_internal(msg);
     }
 
@@ -71,4 +71,4 @@ private:
 };
 } // namespace logging
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_LOGGING_PRINTER_H__ */
+#endif /* ARM_COMPUTE_LOGGING_PRINTER_H */

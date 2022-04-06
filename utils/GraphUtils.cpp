@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,9 +28,14 @@
 #include "arm_compute/core/Types.h"
 #include "arm_compute/graph/Logger.h"
 #include "arm_compute/runtime/SubTensor.h"
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 #include "utils/ImageLoader.h"
+#pragma GCC diagnostic pop
 #include "utils/Utils.h"
 
+#include <inttypes.h>
 #include <iomanip>
 #include <limits>
 
@@ -63,17 +68,33 @@ TFPreproccessor::TFPreproccessor(float min_range, float max_range)
 }
 void TFPreproccessor::preprocess(ITensor &tensor)
 {
+    if(tensor.info()->data_type() == DataType::F32)
+    {
+        preprocess_typed<float>(tensor);
+    }
+    else if(tensor.info()->data_type() == DataType::F16)
+    {
+        preprocess_typed<half>(tensor);
+    }
+    else
+    {
+        ARM_COMPUTE_ERROR("NOT SUPPORTED!");
+    }
+}
+
+template <typename T>
+void TFPreproccessor::preprocess_typed(ITensor &tensor)
+{
     Window window;
     window.use_tensor_dimensions(tensor.info()->tensor_shape());
 
     const float range = _max_range - _min_range;
-
     execute_window_loop(window, [&](const Coordinates & id)
     {
-        const float value                                     = *reinterpret_cast<float *>(tensor.ptr_to_element(id));
-        float       res                                       = value / 255.f;            // Normalize to [0, 1]
-        res                                                   = res * range + _min_range; // Map to [min_range, max_range]
-        *reinterpret_cast<float *>(tensor.ptr_to_element(id)) = res;
+        const T value                                     = *reinterpret_cast<T *>(tensor.ptr_to_element(id));
+        float   res                                       = value / 255.f;            // Normalize to [0, 1]
+        res                                               = res * range + _min_range; // Map to [min_range, max_range]
+        *reinterpret_cast<T *>(tensor.ptr_to_element(id)) = res;
     });
 }
 
@@ -88,15 +109,31 @@ CaffePreproccessor::CaffePreproccessor(std::array<float, 3> mean, bool bgr, floa
 
 void CaffePreproccessor::preprocess(ITensor &tensor)
 {
+    if(tensor.info()->data_type() == DataType::F32)
+    {
+        preprocess_typed<float>(tensor);
+    }
+    else if(tensor.info()->data_type() == DataType::F16)
+    {
+        preprocess_typed<half>(tensor);
+    }
+    else
+    {
+        ARM_COMPUTE_ERROR("NOT SUPPORTED!");
+    }
+}
+
+template <typename T>
+void CaffePreproccessor::preprocess_typed(ITensor &tensor)
+{
     Window window;
     window.use_tensor_dimensions(tensor.info()->tensor_shape());
-
     const int channel_idx = get_data_layout_dimension_index(tensor.info()->data_layout(), DataLayoutDimension::CHANNEL);
 
     execute_window_loop(window, [&](const Coordinates & id)
     {
-        const float value                                     = *reinterpret_cast<float *>(tensor.ptr_to_element(id)) - _mean[id[channel_idx]];
-        *reinterpret_cast<float *>(tensor.ptr_to_element(id)) = value * _scale;
+        const T value                                     = *reinterpret_cast<T *>(tensor.ptr_to_element(id)) - T(_mean[id[channel_idx]]);
+        *reinterpret_cast<T *>(tensor.ptr_to_element(id)) = value * T(_scale);
     });
 }
 
@@ -123,6 +160,11 @@ bool PPMWriter::access_tensor(ITensor &tensor)
 DummyAccessor::DummyAccessor(unsigned int maximum)
     : _iterator(0), _maximum(maximum)
 {
+}
+
+bool DummyAccessor::access_tensor_data()
+{
+    return false;
 }
 
 bool DummyAccessor::access_tensor(ITensor &tensor)
@@ -186,6 +228,19 @@ bool NumPyAccessor::access_tensor(ITensor &tensor)
     return false;
 }
 
+#ifdef ARM_COMPUTE_ASSERTS_ENABLED
+PrintAccessor::PrintAccessor(std::ostream &output_stream, IOFormatInfo io_fmt)
+    : _output_stream(output_stream), _io_fmt(io_fmt)
+{
+}
+
+bool PrintAccessor::access_tensor(ITensor &tensor)
+{
+    tensor.print(_output_stream, _io_fmt);
+    return false;
+}
+#endif /* ARM_COMPUTE_ASSERTS_ENABLED */
+
 SaveNumPyAccessor::SaveNumPyAccessor(std::string npy_name, const bool is_fortran)
     : _npy_name(std::move(npy_name)), _is_fortran(is_fortran)
 {
@@ -222,9 +277,17 @@ bool ImageAccessor::access_tensor(ITensor &tensor)
         {
             std::tie(permuted_shape, perm) = compute_permutation_parameters(tensor.info()->tensor_shape(), tensor.info()->data_layout());
         }
-        ARM_COMPUTE_EXIT_ON_MSG(image_loader->width() != permuted_shape.x() || image_loader->height() != permuted_shape.y(),
-                                "Failed to load image file: dimensions [%d,%d] not correct, expected [%d,%d].",
-                                image_loader->width(), image_loader->height(), permuted_shape.x(), permuted_shape.y());
+
+#ifdef __arm__
+        ARM_COMPUTE_EXIT_ON_MSG_VAR(image_loader->width() != permuted_shape.x() || image_loader->height() != permuted_shape.y(),
+                                    "Failed to load image file: dimensions [%d,%d] not correct, expected [%" PRIu32 ",%" PRIu32 "].",
+                                    image_loader->width(), image_loader->height(), permuted_shape.x(), permuted_shape.y());
+#else  // __arm__
+        ARM_COMPUTE_EXIT_ON_MSG_VAR(image_loader->width() != permuted_shape.x() || image_loader->height() != permuted_shape.y(),
+                                    "Failed to load image file: dimensions [%d,%d] not correct, expected [%" PRIu64 ",%" PRIu64 "].",
+                                    image_loader->width(), image_loader->height(),
+                                    static_cast<uint64_t>(permuted_shape.x()), static_cast<uint64_t>(permuted_shape.y()));
+#endif // __arm__
 
         // Fill the tensor with the PPM content (BGR)
         image_loader->fill_planar_tensor(tensor, _bgr);
@@ -274,7 +337,7 @@ ValidationInputAccessor::ValidationInputAccessor(const std::string             &
     }
     catch(const std::ifstream::failure &e)
     {
-        ARM_COMPUTE_ERROR("Accessing %s: %s", image_list.c_str(), e.what());
+        ARM_COMPUTE_ERROR_VAR("Accessing %s: %s", image_list.c_str(), e.what());
     }
 }
 
@@ -298,9 +361,17 @@ bool ValidationInputAccessor::access_tensor(arm_compute::ITensor &tensor)
             std::tie(permuted_shape, perm) = compute_permutation_parameters(tensor.info()->tensor_shape(),
                                                                             tensor.info()->data_layout());
         }
-        ARM_COMPUTE_EXIT_ON_MSG(jpeg.width() != permuted_shape.x() || jpeg.height() != permuted_shape.y(),
-                                "Failed to load image file: dimensions [%d,%d] not correct, expected [%d,%d].",
-                                jpeg.width(), jpeg.height(), permuted_shape.x(), permuted_shape.y());
+
+#ifdef __arm__
+        ARM_COMPUTE_EXIT_ON_MSG_VAR(jpeg.width() != permuted_shape.x() || jpeg.height() != permuted_shape.y(),
+                                    "Failed to load image file: dimensions [%d,%d] not correct, expected [%" PRIu32 ",%" PRIu32 "].",
+                                    jpeg.width(), jpeg.height(), permuted_shape.x(), permuted_shape.y());
+#else  // __arm__
+        ARM_COMPUTE_EXIT_ON_MSG_VAR(jpeg.width() != permuted_shape.x() || jpeg.height() != permuted_shape.y(),
+                                    "Failed to load image file: dimensions [%d,%d] not correct, expected [%" PRIu64 ",%" PRIu64 "].",
+                                    jpeg.width(), jpeg.height(),
+                                    static_cast<uint64_t>(permuted_shape.x()), static_cast<uint64_t>(permuted_shape.y()));
+#endif // __arm__
 
         // Fill the tensor with the JPEG content (BGR)
         jpeg.fill_planar_tensor(tensor, _bgr);
@@ -347,7 +418,7 @@ ValidationOutputAccessor::ValidationOutputAccessor(const std::string &image_list
     }
     catch(const std::ifstream::failure &e)
     {
-        ARM_COMPUTE_ERROR("Accessing %s: %s", image_list.c_str(), e.what());
+        ARM_COMPUTE_ERROR_VAR("Accessing %s: %s", image_list.c_str(), e.what());
     }
 }
 
@@ -369,6 +440,9 @@ bool ValidationOutputAccessor::access_tensor(arm_compute::ITensor &tensor)
         {
             case DataType::QASYMM8:
                 tensor_results = access_predictions_tensor<uint8_t>(tensor);
+                break;
+            case DataType::F16:
+                tensor_results = access_predictions_tensor<half>(tensor);
                 break;
             case DataType::F32:
                 tensor_results = access_predictions_tensor<float>(tensor);
@@ -460,7 +534,7 @@ DetectionOutputAccessor::DetectionOutputAccessor(const std::string &labels_path,
     }
     catch(const std::ifstream::failure &e)
     {
-        ARM_COMPUTE_ERROR("Accessing %s: %s", labels_path.c_str(), e.what());
+        ARM_COMPUTE_ERROR_VAR("Accessing %s: %s", labels_path.c_str(), e.what());
     }
 }
 
@@ -531,7 +605,7 @@ TopNPredictionsAccessor::TopNPredictionsAccessor(const std::string &labels_path,
     }
     catch(const std::ifstream::failure &e)
     {
-        ARM_COMPUTE_ERROR("Accessing %s: %s", labels_path.c_str(), e.what());
+        ARM_COMPUTE_ERROR_VAR("Accessing %s: %s", labels_path.c_str(), e.what());
     }
 }
 
@@ -676,7 +750,7 @@ bool RandomAccessor::access_tensor(ITensor &tensor)
         }
         case DataType::F16:
         {
-            std::uniform_real_distribution<float> distribution_f16(_lower.get<half>(), _upper.get<half>());
+            arm_compute::utils::uniform_real_distribution_16bit<half> distribution_f16(_lower.get<float>(), _upper.get<float>());
             fill<half>(tensor, distribution_f16);
             break;
         }

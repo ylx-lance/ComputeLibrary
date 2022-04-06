@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,9 +26,12 @@
 #include "arm_compute/core/ITensor.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/runtime/Scheduler.h"
+#include "src/common/utils/Log.h"
 
 namespace arm_compute
 {
+NEFFT2D::~NEFFT2D() = default;
+
 NEFFT2D::NEFFT2D(std::shared_ptr<IMemoryManager> memory_manager)
     : _memory_group(memory_manager), _first_pass_func(memory_manager), _second_pass_func(memory_manager), _first_pass_tensor()
 {
@@ -38,17 +41,18 @@ void NEFFT2D::configure(const ITensor *input, ITensor *output, const FFT2DInfo &
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
     ARM_COMPUTE_ERROR_THROW_ON(NEFFT2D::validate(input->info(), output->info(), config));
+    ARM_COMPUTE_LOG_PARAMS(input, output, config);
 
     // Setup first pass
     FFT1DInfo first_pass_config;
-    first_pass_config.axis      = config.axes.first;
+    first_pass_config.axis      = config.axis0;
     first_pass_config.direction = config.direction;
     _memory_group.manage(&_first_pass_tensor);
     _first_pass_func.configure(input, &_first_pass_tensor, first_pass_config);
 
     // Setup second pass
     FFT1DInfo second_pass_config;
-    second_pass_config.axis      = config.axes.second;
+    second_pass_config.axis      = config.axis1;
     second_pass_config.direction = config.direction;
     _second_pass_func.configure(&_first_pass_tensor, output, second_pass_config);
     _first_pass_tensor.allocator()->allocate();
@@ -63,13 +67,13 @@ Status NEFFT2D::validate(const ITensorInfo *input, const ITensorInfo *output, co
 
     // Validate first pass
     FFT1DInfo first_pass_config;
-    first_pass_config.axis      = config.axes.first;
+    first_pass_config.axis      = config.axis0;
     first_pass_config.direction = config.direction;
     ARM_COMPUTE_RETURN_ON_ERROR(NEFFT1D::validate(input, &first_pass_tensor, first_pass_config));
 
     // Validate second pass
     FFT1DInfo second_pass_config;
-    second_pass_config.axis      = config.axes.second;
+    second_pass_config.axis      = config.axis1;
     second_pass_config.direction = config.direction;
     ARM_COMPUTE_RETURN_ON_ERROR(NEFFT1D::validate(&first_pass_tensor, output, second_pass_config));
 

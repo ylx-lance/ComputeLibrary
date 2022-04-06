@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NEBITWISENOT_H__
-#define __ARM_COMPUTE_NEBITWISENOT_H__
+#ifndef ARM_COMPUTE_NEBITWISENOT_H
+#define ARM_COMPUTE_NEBITWISENOT_H
 
 #include "arm_compute/runtime/NEON/INESimpleFunctionNoBorder.h"
 
@@ -36,10 +36,18 @@ class NEBitwiseNot : public INESimpleFunctionNoBorder
 public:
     /** Initialise the kernel's input and output
      *
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |U8             |U8             |
+     *
      * @param[in]  input  Input tensor. Data type supported: U8.
      * @param[out] output Output tensor. Data type supported: U8.
      */
     void configure(const ITensor *input, ITensor *output);
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_NEBITWISENOT_H__ */
+#endif /* ARM_COMPUTE_NEBITWISENOT_H */

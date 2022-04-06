@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_ICLTUNER_H__
-#define __ARM_COMPUTE_ICLTUNER_H__
+#ifndef ARM_COMPUTE_ICLTUNER_H
+#define ARM_COMPUTE_ICLTUNER_H
+
+#include "arm_compute/core/experimental/Types.h"
 
 namespace arm_compute
 {
@@ -49,6 +51,12 @@ public:
      * @param[in] kernel Kernel to tune
      */
     virtual void tune_kernel_dynamic(ICLKernel &kernel) = 0;
+    /** Tune OpenCL kernel dynamically
+     *
+     * @param[in]      kernel  Kernel to tune
+     * @param[in, out] tensors Tensors for the kernel to use
+     */
+    virtual void tune_kernel_dynamic(ICLKernel &kernel, ITensorPack &tensors) = 0;
 };
-}
-#endif /*__ARM_COMPUTE_ICLTUNER_H__ */
+} // namespace arm_compute
+#endif /*ARM_COMPUTE_ICLTUNER_H */

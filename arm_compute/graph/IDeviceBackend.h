@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2019,2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,13 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_IDEVICEBACKEND_H__
-#define __ARM_COMPUTE_GRAPH_IDEVICEBACKEND_H__
+#ifndef ARM_COMPUTE_GRAPH_IDEVICEBACKEND_H
+#define ARM_COMPUTE_GRAPH_IDEVICEBACKEND_H
 
 #include "arm_compute/graph/ITensorHandle.h"
 #include "arm_compute/graph/Types.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
+#include "arm_compute/runtime/IWeightsManager.h"
 
 #include <memory>
 
@@ -112,8 +113,15 @@ public:
      * @return Memory manager
      */
     virtual std::shared_ptr<arm_compute::IMemoryManager> create_memory_manager(MemoryManagerAffinity affinity) = 0;
+    /** Create a backend weights manager
+     *
+     * @return Weights manager
+     */
+    virtual std::shared_ptr<arm_compute::IWeightsManager> create_weights_manager() = 0;
+    /** Synchronize kernels execution on the backend. On GPU, this results in a blocking call waiting for all kernels to be completed. */
+    virtual void sync() = 0;
 };
 } // namespace backends
 } // namespace graph
 } // namespace arm_compute
-#endif //__ARM_COMPUTE_GRAPH_IDEVICEBACKEND_H__
+#endif //ARM_COMPUTE_GRAPH_IDEVICEBACKEND_H

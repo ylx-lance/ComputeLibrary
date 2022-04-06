@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NEBITWISEAND_H__
-#define __ARM_COMPUTE_NEBITWISEAND_H__
+#ifndef ARM_COMPUTE_NEBITWISEAND_H
+#define ARM_COMPUTE_NEBITWISEAND_H
 
 #include "arm_compute/runtime/NEON/INESimpleFunctionNoBorder.h"
 
@@ -34,7 +34,27 @@ class ITensor;
 class NEBitwiseAnd : public INESimpleFunctionNoBorder
 {
 public:
+    /** Constructor */
+    NEBitwiseAnd() = default;
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEBitwiseAnd(const NEBitwiseAnd &) = delete;
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEBitwiseAnd &operator=(const NEBitwiseAnd &) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NEBitwiseAnd(NEBitwiseAnd &&) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NEBitwiseAnd &operator=(NEBitwiseAnd &&) = delete;
+    /** Default destructor */
+    ~NEBitwiseAnd() = default;
     /** Initialise the kernel's inputs and output
+     *
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |U8             |U8             |
      *
      * @param[in]  input1 First tensor input. Data type supported: U8.
      * @param[in]  input2 Second tensor input. Data type supported: U8.
@@ -43,4 +63,4 @@ public:
     void configure(const ITensor *input1, const ITensor *input2, ITensor *output);
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_NEBITWISEAND_H__ */
+#endif /* ARM_COMPUTE_NEBITWISEAND_H */

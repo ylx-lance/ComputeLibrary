@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,18 +23,80 @@
  */
 #include "arm_compute/runtime/CL/CLScheduler.h"
 
-#include "arm_compute/runtime/CL/CLHelpers.h"
-
-#include "arm_compute/core/CL/ICLKernel.h"
+#include "arm_compute/core/CL/CLKernelLibrary.h"
 #include "arm_compute/runtime/CL/CLTuner.h"
-#include "arm_compute/runtime/CL/tuners/Tuners.h"
+#include "src/core/CL/ICLKernel.h"
 
-using namespace arm_compute;
+namespace arm_compute
+{
+cl::Context &CLScheduler::context()
+{
+    ARM_COMPUTE_ERROR_ON(!_is_initialised);
+    _context = CLKernelLibrary::get().context();
+    return _context;
+}
+
+cl::CommandQueue &CLScheduler::queue()
+{
+    ARM_COMPUTE_ERROR_ON(!_is_initialised);
+    return _queue;
+}
+
+GPUTarget CLScheduler::target() const
+{
+    return _target;
+}
+
+CLGEMMHeuristicsHandle *CLScheduler::gemm_heuristics() const
+{
+    return _gemm_heuristics;
+}
+
+void CLScheduler::set_queue(cl::CommandQueue queue)
+{
+    _queue = std::move(queue);
+}
+
+void CLScheduler::set_target(GPUTarget target)
+{
+    _target = target;
+}
+
+void CLScheduler::set_tuner(ICLTuner *tuner)
+{
+    _cl_tuner = tuner;
+}
+
+void CLScheduler::sync()
+{
+    _queue.finish();
+}
+
+cl::Event CLScheduler::enqueue_sync_event()
+{
+    cl::Event event;
+    _queue.enqueueMarker(&event);
+    return event;
+}
+
+void CLScheduler::tune_kernel_static(ICLKernel &kernel)
+{
+    if(_cl_tuner != nullptr)
+    {
+        _cl_tuner->tune_kernel_static(kernel);
+    }
+}
+
+bool CLScheduler::is_initialised() const
+{
+    return _is_initialised;
+}
 
 std::once_flag CLScheduler::_initialize_symbols;
 
 CLScheduler::CLScheduler()
-    : _context(), _queue(), _target(GPUTarget::MIDGARD), _is_initialised(false), _cl_tuner(nullptr), _cl_default_static_tuner(nullptr)
+    : _context(), _queue(), _target(GPUTarget::MIDGARD), _is_initialised(false), _cl_tuner(nullptr), _gemm_heuristics(nullptr), _backend_type(CLBackendType::Native), _job_chaining_enabled(false),
+      _job_chaining_size(), _job_chaining_count(0)
 {
 }
 
@@ -45,36 +107,34 @@ CLScheduler &CLScheduler::get()
     return scheduler;
 }
 
-void CLScheduler::default_init_with_context(cl::Device &device, cl::Context &ctx, ICLTuner *cl_tuner)
+void CLScheduler::default_init_with_context(cl::Device &device, cl::Context &ctx, ICLTuner *cl_tuner, CLGEMMHeuristicsHandle *gemm_h)
 {
     if(!_is_initialised)
     {
-        cl::CommandQueue queue = cl::CommandQueue(ctx, device);
-        CLKernelLibrary::get().init("./cl_kernels/", ctx, device);
-        init(ctx, queue, device, cl_tuner);
-        _cl_default_static_tuner = tuners::TunerFactory::create_tuner(_target);
-        _cl_tuner                = (cl_tuner == nullptr) ? _cl_default_static_tuner.get() : cl_tuner;
+        const std::string cl_kernels_folder("./cl_kernels/");
+        cl::CommandQueue  queue = cl::CommandQueue(ctx, device);
+        CLKernelLibrary::get().init(cl_kernels_folder, ctx, device);
+        init(ctx, queue, device, cl_tuner, gemm_h);
+        _cl_tuner = cl_tuner;
     }
 }
 
-void CLScheduler::default_init(ICLTuner *cl_tuner)
+void CLScheduler::default_init(ICLTuner *cl_tuner, CLGEMMHeuristicsHandle *gemm_h, CLBackendType cl_backend_type)
 {
     if(!_is_initialised)
     {
         cl::Context ctx;
         cl::Device  dev;
         cl_int      err;
-        std::tie(ctx, dev, err) = create_opencl_context_and_device();
+        std::tie(ctx, dev, err) = create_opencl_context_and_device(cl_backend_type);
         ARM_COMPUTE_ERROR_ON_MSG(err != CL_SUCCESS, "Failed to create OpenCL context");
         cl::CommandQueue queue = cl::CommandQueue(ctx, dev);
         CLKernelLibrary::get().init("./cl_kernels/", ctx, dev);
-        init(ctx, queue, dev, cl_tuner);
-        // Create a default static tuner and set if none was provided
-        _cl_default_static_tuner = tuners::TunerFactory::create_tuner(_target);
+        init(ctx, queue, dev, cl_tuner, gemm_h);
     }
 
     // Set CL tuner
-    _cl_tuner = (cl_tuner == nullptr) ? _cl_default_static_tuner.get() : cl_tuner;
+    _cl_tuner = cl_tuner;
 }
 
 void CLScheduler::set_context(cl::Context context)
@@ -83,33 +143,62 @@ void CLScheduler::set_context(cl::Context context)
     CLKernelLibrary::get().set_context(_context);
 }
 
-void CLScheduler::init(cl::Context context, cl::CommandQueue queue, const cl::Device &device, ICLTuner *cl_tuner)
+void CLScheduler::init(cl::Context context, cl::CommandQueue queue, const cl::Device &device, ICLTuner *cl_tuner, CLGEMMHeuristicsHandle *gemm_h, CLBackendType cl_backend_type)
 {
     set_context(std::move(context));
-    _queue          = std::move(queue);
-    _target         = get_target_from_device(device);
-    _is_initialised = true;
-    _cl_tuner       = cl_tuner;
+    _queue           = std::move(queue);
+    _target          = get_target_from_device(device);
+    _is_initialised  = true;
+    _cl_tuner        = cl_tuner;
+    _gemm_heuristics = gemm_h;
+    _backend_type    = cl_backend_type;
 }
 
-void CLScheduler::enqueue(ICLKernel &kernel, bool flush)
+void CLScheduler::enqueue_common(ICLKernel &kernel, ITensorPack &tensors, bool flush)
 {
     ARM_COMPUTE_ERROR_ON_MSG(!_is_initialised,
                              "The CLScheduler is not initialised yet! Please call the CLScheduler::get().default_init(), \
                              or CLScheduler::get()::init() and CLKernelLibrary::get()::init() function before running functions!");
 
+    const bool inject_memory = !tensors.empty();
+
     // Tune the kernel if the CLTuner has been provided
     if(_cl_tuner != nullptr)
     {
-        // Tune the OpenCL kernel
-        _cl_tuner->tune_kernel_dynamic(kernel);
+        inject_memory ? _cl_tuner->tune_kernel_dynamic(kernel, tensors) : _cl_tuner->tune_kernel_dynamic(kernel);
     }
 
     // Run kernel
-    kernel.run(kernel.window(), _queue);
+    inject_memory ? kernel.run_op(tensors, kernel.window(), _queue) : kernel.run(kernel.window(), _queue);
 
-    if(flush)
+    if(_job_chaining_enabled)
+    {
+        if(++_job_chaining_count >= _job_chaining_size)
+        {
+            _job_chaining_count = 0;
+            _queue.flush();
+        }
+    }
+    else if(flush)
     {
         _queue.flush();
     }
 }
+
+void CLScheduler::enqueue(ICLKernel &kernel, bool flush)
+{
+    ITensorPack pack;
+    enqueue_common(kernel, pack, flush);
+}
+
+void CLScheduler::enqueue_op(ICLKernel &kernel, ITensorPack &tensors, bool flush)
+{
+    enqueue_common(kernel, tensors, flush);
+}
+
+void CLScheduler::enable_job_chaining(int job_chaining_size)
+{
+    _job_chaining_enabled = true;
+    _job_chaining_size    = job_chaining_size;
+}
+} // namespace arm_compute

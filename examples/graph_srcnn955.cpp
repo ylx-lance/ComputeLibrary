@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -47,13 +47,12 @@ public:
     }
     GraphSRCNN955Example(const GraphSRCNN955Example &) = delete;
     GraphSRCNN955Example &operator=(const GraphSRCNN955Example &) = delete;
-    GraphSRCNN955Example(GraphSRCNN955Example &&)                 = default; // NOLINT
-    GraphSRCNN955Example &operator=(GraphSRCNN955Example &&) = default;      // NOLINT
-    ~GraphSRCNN955Example() override                         = default;
+    ~GraphSRCNN955Example() override                              = default;
     bool do_setup(int argc, char **argv) override
     {
         // Parse arguments
         cmd_parser.parse(argc, argv);
+        cmd_parser.validate();
 
         // Consume common parameters
         common_params = consume_common_graph_parameters(common_opts);
@@ -74,18 +73,15 @@ public:
         std::cout << "Image width: " << image_width << std::endl;
         std::cout << "Image height: " << image_height << std::endl;
 
-        // Checks
-        ARM_COMPUTE_EXIT_ON_MSG(arm_compute::is_data_type_quantized_asymmetric(common_params.data_type), "QASYMM8 not supported for this graph");
-
         // Get trainable parameters data path
         const std::string data_path  = common_params.data_path;
         const std::string model_path = "/cnn_data/srcnn955_model/";
 
         // Create a preprocessor object
-        std::unique_ptr<IPreprocessor> preprocessor = arm_compute::support::cpp14::make_unique<TFPreproccessor>();
+        std::unique_ptr<IPreprocessor> preprocessor = std::make_unique<TFPreproccessor>();
 
         // Create input descriptor
-        const TensorShape tensor_shape     = permute_shape(TensorShape(image_width, image_height, 3U, 1U), DataLayout::NCHW, common_params.data_layout);
+        const TensorShape tensor_shape     = permute_shape(TensorShape(image_width, image_height, 3U, common_params.batches), DataLayout::NCHW, common_params.data_layout);
         TensorDescriptor  input_descriptor = TensorDescriptor(tensor_shape, common_params.data_type).set_layout(common_params.data_layout);
 
         // Set weights trained layout
@@ -115,14 +111,17 @@ public:
                   PadStrideInfo(1, 1, 2, 2))
               .set_name("conv3/convolution")
               << ActivationLayer(ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::RELU)).set_name("conv3/Relu")
-              << OutputLayer(arm_compute::support::cpp14::make_unique<DummyAccessor>(0));
+              << OutputLayer(std::make_unique<DummyAccessor>(0));
 
         // Finalize graph
         GraphConfig config;
-        config.num_threads = common_params.threads;
-        config.use_tuner   = common_params.enable_tuner;
-        config.tuner_mode  = common_params.tuner_mode;
-        config.tuner_file  = common_params.tuner_file;
+        config.num_threads        = common_params.threads;
+        config.use_tuner          = common_params.enable_tuner;
+        config.tuner_mode         = common_params.tuner_mode;
+        config.tuner_file         = common_params.tuner_file;
+        config.mlgo_file          = common_params.mlgo_file;
+        config.use_synthetic_type = arm_compute::is_data_type_quantized(common_params.data_type);
+        config.synthetic_type     = common_params.data_type;
 
         graph.finalize(common_params.target, config);
 

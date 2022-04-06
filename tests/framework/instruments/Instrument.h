@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -117,6 +117,15 @@ public:
         return MeasurementsMap();
     }
 
+    /** Return JSON formatted instrument header string.
+     *
+     * @return JSON formatted string
+     */
+    virtual std::string instrument_header() const
+    {
+        return std::string{};
+    }
+
     /** Return the latest test measurements.
      *
      * @return the latest test measurements.
@@ -133,7 +142,7 @@ protected:
 template <typename T, ScaleFactor scale>
 inline std::unique_ptr<Instrument> Instrument::make_instrument()
 {
-    return support::cpp14::make_unique<T>(scale);
+    return std::make_unique<T>(scale);
 }
 
 } // namespace framework

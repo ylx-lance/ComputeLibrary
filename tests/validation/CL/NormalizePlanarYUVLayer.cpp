@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -54,31 +54,6 @@ TEST_SUITE(NormalizePlanarYUVLayer)
 template <typename T>
 using CLNormalizePlanarYUVLayerFixture = NormalizePlanarYUVLayerValidationFixture<CLTensor, CLAccessor, CLNormalizePlanarYUVLayer, T>;
 
-DATA_TEST_CASE(Configuration, framework::DatasetMode::ALL, combine(combine(datasets::RandomNormalizePlanarYUVLayerDataset(), framework::dataset::make("DataType", { DataType::F16 })),
-                                                                   framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC })),
-               shape0, shape1, dt, data_layout)
-{
-    TensorShape src_dst_shapes = shape0;
-    if(data_layout == DataLayout::NHWC)
-    {
-        permute(src_dst_shapes, PermutationVector(2U, 0U, 1U));
-    }
-
-    // Create tensors
-    CLTensor src  = create_tensor<CLTensor>(src_dst_shapes, dt, 1, QuantizationInfo(), data_layout);
-    CLTensor dst  = create_tensor<CLTensor>(src_dst_shapes, dt, 1, QuantizationInfo(), data_layout);
-    CLTensor mean = create_tensor<CLTensor>(shape1, dt, 1);
-    CLTensor sd   = create_tensor<CLTensor>(shape1, dt, 1);
-
-    // Create and Configure function
-    CLNormalizePlanarYUVLayer norm;
-    norm.configure(&src, &dst, &mean, &sd);
-
-    // Validate valid region
-    const ValidRegion valid_region = shape_to_valid_region(src_dst_shapes);
-    validate(dst.info()->valid_region(), valid_region);
-}
-
 // *INDENT-OFF*
 // clang-format off
 DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
@@ -123,7 +98,7 @@ FIXTURE_DATA_TEST_CASE(Random, CLNormalizePlanarYUVLayerFixture<half>, framework
     // Validate output
     validate(CLAccessor(_target), _reference, tolerance_f16, 0);
 }
-TEST_SUITE_END()
+TEST_SUITE_END() // FP16
 
 TEST_SUITE(FP32)
 FIXTURE_DATA_TEST_CASE(Random, CLNormalizePlanarYUVLayerFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::RandomNormalizePlanarYUVLayerDataset(),
@@ -133,8 +108,8 @@ FIXTURE_DATA_TEST_CASE(Random, CLNormalizePlanarYUVLayerFixture<float>, framewor
     // Validate output
     validate(CLAccessor(_target), _reference, tolerance_f32);
 }
-TEST_SUITE_END()
-TEST_SUITE_END()
+TEST_SUITE_END() // FP32
+TEST_SUITE_END() // Float
 
 template <typename T>
 using CLNormalizePlanarYUVLayerQuantizedFixture = NormalizePlanarYUVLayerValidationQuantizedFixture<CLTensor, CLAccessor, CLNormalizePlanarYUVLayer, T>;
@@ -143,17 +118,27 @@ TEST_SUITE(Quantized)
 TEST_SUITE(QASYMM8)
 FIXTURE_DATA_TEST_CASE(Random, CLNormalizePlanarYUVLayerQuantizedFixture<uint8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::RandomNormalizePlanarYUVLayerDataset(),
                        framework::dataset::make("DataType", DataType::QASYMM8)),
-                       framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC })),
+                       framework::dataset::make("DataLayout", { DataLayout::NHWC })),
                        framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.1f, 128.0f) })))
 {
     // Validate output
     validate(CLAccessor(_target), _reference, tolerance_qasymm8, 0);
 }
-TEST_SUITE_END()
-TEST_SUITE_END()
+TEST_SUITE_END() // QASYMM8
+TEST_SUITE(QASYMM8_SIGNED)
+FIXTURE_DATA_TEST_CASE(Random, CLNormalizePlanarYUVLayerQuantizedFixture<int8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::RandomNormalizePlanarYUVLayerDataset(),
+                       framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
+                       framework::dataset::make("DataLayout", { DataLayout::NCHW })),
+                       framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.1f, 128.0f) })))
+{
+    // Validate output
+    validate(CLAccessor(_target), _reference, tolerance_qasymm8, 0);
+}
+TEST_SUITE_END() // QASYMM8_SIGNED
+TEST_SUITE_END() // Quantized
 
-TEST_SUITE_END()
-TEST_SUITE_END()
+TEST_SUITE_END() // NormalizePlanarYUVLayer
+TEST_SUITE_END() // CL
 } // namespace validation
 } // namespace test
 } // namespace arm_compute

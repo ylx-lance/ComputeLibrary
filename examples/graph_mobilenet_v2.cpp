@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -42,14 +42,13 @@ public:
     }
     GraphMobilenetV2Example(const GraphMobilenetV2Example &) = delete;
     GraphMobilenetV2Example &operator=(const GraphMobilenetV2Example &) = delete;
-    GraphMobilenetV2Example(GraphMobilenetV2Example &&)                 = default; // NOLINT
-    GraphMobilenetV2Example &operator=(GraphMobilenetV2Example &&) = default;      // NOLINT
-    ~GraphMobilenetV2Example() override                            = default;
+    ~GraphMobilenetV2Example() override                                 = default;
 
     bool do_setup(int argc, char **argv) override
     {
         // Parse arguments
         cmd_parser.parse(argc, argv);
+        cmd_parser.validate();
 
         // Consume common parameters
         common_params = consume_common_graph_parameters(common_opts);
@@ -65,12 +64,11 @@ public:
         std::cout << common_params << std::endl;
 
         // Create input descriptor
-        const TensorShape tensor_shape     = permute_shape(TensorShape(224U, 224U, 3U, 1U), DataLayout::NCHW, common_params.data_layout);
+        const TensorShape tensor_shape     = permute_shape(TensorShape(224U, 224U, 3U, common_params.batches), DataLayout::NCHW, common_params.data_layout);
         TensorDescriptor  input_descriptor = TensorDescriptor(tensor_shape, common_params.data_type).set_layout(common_params.data_layout);
 
         // Set graph hints
         graph << common_params.target
-              << DepthwiseConvolutionMethod::Optimized3x3 // TODO(COMPMID-1073): Add heuristics to automatically call the optimized 3x3 method
               << common_params.fast_math_hint;
 
         // Create core graph
@@ -93,6 +91,7 @@ public:
         config.use_tuner   = common_params.enable_tuner;
         config.tuner_mode  = common_params.tuner_mode;
         config.tuner_file  = common_params.tuner_file;
+        config.mlgo_file   = common_params.mlgo_file;
 
         graph.finalize(common_params.target, config);
 
@@ -131,7 +130,7 @@ private:
         const std::string model_path = "/cnn_data/mobilenet_v2_1.0_224_model/";
 
         // Create a preprocessor object
-        std::unique_ptr<IPreprocessor> preprocessor = arm_compute::support::cpp14::make_unique<TFPreproccessor>();
+        std::unique_ptr<IPreprocessor> preprocessor = std::make_unique<TFPreproccessor>();
 
         // Get trainable parameters data path
         std::string data_path = common_params.data_path;
@@ -188,7 +187,7 @@ private:
               .set_name("Conv_1/BatchNorm")
               << ActivationLayer(ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::BOUNDED_RELU, 6.f))
               .set_name("Conv_1/Relu6")
-              << PoolingLayer(PoolingLayerInfo(PoolingType::AVG)).set_name("Logits/AvgPool")
+              << PoolingLayer(PoolingLayerInfo(PoolingType::AVG, common_params.data_layout)).set_name("Logits/AvgPool")
               << ConvolutionLayer(1U, 1U, 1001U,
                                   get_weights_accessor(data_path, "Logits_Conv2d_1c_1x1_weights.npy", DataLayout::NCHW),
                                   get_weights_accessor(data_path, "Logits_Conv2d_1c_1x1_biases.npy"),
@@ -398,7 +397,7 @@ private:
                                   PadStrideInfo(1, 1, 0, 0), 1, conv_weights_quant_info.at(1))
               .set_name("Conv_1")
               << ActivationLayer(ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LU_BOUNDED_RELU, 6.f)).set_name("Conv_1/Relu6")
-              << PoolingLayer(PoolingLayerInfo(PoolingType::AVG)).set_name("Logits/AvgPool")
+              << PoolingLayer(PoolingLayerInfo(PoolingType::AVG, common_params.data_layout)).set_name("Logits/AvgPool")
               << ConvolutionLayer(1U, 1U, 1001U,
                                   get_weights_accessor(data_path, "Logits_Conv2d_1c_1x1_weights.npy"),
                                   get_weights_accessor(data_path, "Logits_Conv2d_1c_1x1_biases.npy"),

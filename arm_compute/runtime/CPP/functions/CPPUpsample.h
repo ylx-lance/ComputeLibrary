@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CPPUPSAMPLE_H__
-#define __ARM_COMPUTE_CPPUPSAMPLE_H__
+#ifndef ARM_COMPUTE_CPPUPSAMPLE_H
+#define ARM_COMPUTE_CPPUPSAMPLE_H
 
 #include "arm_compute/runtime/CPP/ICPPSimpleFunction.h"
 
@@ -38,11 +38,11 @@ class CPPUpsample : public ICPPSimpleFunction
 public:
     /** Configure the upsample CPP kernel
      *
-     * @param[in]  input  The input tensor to upsample. Data types supported: F32/F16/QASYMM8
-     * @param[out] output The output tensor. Data types supported: Same as @p input
+     * @param[in]  input  The input tensor to upsample. Data types supported: All.
+     * @param[out] output The output tensor. Data types supported: same as @p input
      * @param[in]  info   Padding information
      */
     void configure(const ITensor *input, ITensor *output, const PadStrideInfo &info);
 };
 }
-#endif /* __ARM_COMPUTE_CPPUPSAMPLE_H__ */
+#endif /* ARM_COMPUTE_CPPUPSAMPLE_H */

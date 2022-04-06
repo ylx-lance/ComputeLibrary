@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -22,15 +22,13 @@
  * SOFTWARE.
  */
 #include "arm_compute/core/CPP/kernels/CPPTopKVKernel.h"
-#include "arm_compute/core/Coordinates.h"
-#include "arm_compute/core/Error.h"
+
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/TensorInfo.h"
-#include "arm_compute/core/Types.h"
-#include "arm_compute/core/Utils.h"
-#include "arm_compute/core/Validate.h"
-#include "arm_compute/core/Window.h"
 #include "arm_compute/core/utils/misc/Traits.h"
+
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
 
 namespace arm_compute
 {
@@ -54,7 +52,7 @@ inline bool greater_than(T a, T b)
 Status validate_arguments(const ITensorInfo *predictions, const ITensorInfo *targets, ITensorInfo *output, const unsigned int k)
 {
     ARM_COMPUTE_UNUSED(k);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(predictions, 1, DataType::QASYMM8, DataType::S32, DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(predictions, 1, DataType::QASYMM8, DataType::QASYMM8_SIGNED, DataType::S32, DataType::F16, DataType::F32);
     ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(targets, 1, DataType::U32);
 
     ARM_COMPUTE_RETURN_ERROR_ON(predictions->num_dimensions() > 2);
@@ -144,6 +142,9 @@ void CPPTopKVKernel::run(const Window &window, const ThreadInfo &info)
             break;
         case DataType::QASYMM8:
             run_topkv<uint8_t>();
+            break;
+        case DataType::QASYMM8_SIGNED:
+            run_topkv<int8_t>();
             break;
         default:
             ARM_COMPUTE_ERROR("Not supported");

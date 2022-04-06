@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLARRAY_H__
-#define __ARM_COMPUTE_CLARRAY_H__
+#ifndef ARM_COMPUTE_CLARRAY_H
+#define ARM_COMPUTE_CLARRAY_H
 
 #include "arm_compute/core/CL/ICLArray.h"
 #include "arm_compute/core/CL/OpenCL.h"
@@ -102,15 +102,6 @@ protected:
 private:
     cl::Buffer _buffer;
 };
-
-/** OpenCL Array of Key Points. */
-using CLKeyPointArray = CLArray<KeyPoint>;
-/** OpenCL Array of 2D Coordinates. */
-using CLCoordinates2DArray = CLArray<Coordinates2D>;
-/** OpenCL Array of Detection Windows. */
-using CLDetectionWindowArray = CLArray<DetectionWindow>;
-/** OpenCL Array of 2D Sizes. */
-using CLSize2DArray = CLArray<Size2D>;
 /** OpenCL Array of uint8s. */
 using CLUInt8Array = CLArray<cl_uchar>;
 /** OpenCL Array of uint16s. */
@@ -124,4 +115,4 @@ using CLInt32Array = CLArray<cl_int>;
 /** OpenCL Array of floats. */
 using CLFloatArray = CLArray<cl_float>;
 }
-#endif /* __ARM_COMPUTE_CLARRAY_H__ */
+#endif /* ARM_COMPUTE_CLARRAY_H */

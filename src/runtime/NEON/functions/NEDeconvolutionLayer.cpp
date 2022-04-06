@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,25 +28,52 @@
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
+#include "src/common/utils/Log.h"
+#include "src/core/helpers/AutoConfiguration.h"
 
 using namespace arm_compute::misc::shape_calculator;
 
 namespace arm_compute
 {
+namespace
+{
+PadStrideInfo compute_upsample_info(const PadStrideInfo &info, uint32_t deconv_pad_x, uint32_t deconv_pad_y)
+{
+    const unsigned int pad_left   = info.pad_left();
+    const unsigned int pad_right  = info.pad_right();
+    const unsigned int pad_top    = info.pad_top();
+    const unsigned int pad_bottom = info.pad_bottom();
+    const unsigned int stride_x   = info.stride().first;
+    const unsigned int stride_y   = info.stride().second;
+
+    // Find the upsampled dimensions and the padding needed for the convolution with stride 1 in order to match output shape
+    unsigned int deconv_pad_left  = pad_right > pad_left ? pad_right - pad_left : 0;
+    unsigned int deconv_pad_right = pad_left > pad_right ? pad_left - pad_right : 0;
+    deconv_pad_x -= deconv_pad_left + deconv_pad_right;
+    ARM_COMPUTE_ERROR_ON((deconv_pad_x % 2) != 0);
+    deconv_pad_left += deconv_pad_x / 2;
+    deconv_pad_right += deconv_pad_x / 2;
+
+    unsigned int deconv_pad_top    = pad_bottom > pad_top ? pad_bottom - pad_top : 0;
+    unsigned int deconv_pad_bottom = pad_top > pad_bottom ? pad_top - pad_bottom : 0;
+    deconv_pad_y -= deconv_pad_top + deconv_pad_bottom;
+    ARM_COMPUTE_ERROR_ON((deconv_pad_y % 2) != 0);
+    deconv_pad_top += deconv_pad_y / 2;
+    deconv_pad_bottom += deconv_pad_y / 2;
+
+    return PadStrideInfo(stride_x, stride_y, deconv_pad_left, deconv_pad_right, deconv_pad_top, deconv_pad_bottom, DimensionRoundingType::FLOOR);
+}
+
+} // namespace
+
 NEDeconvolutionLayer::NEDeconvolutionLayer(std::shared_ptr<IMemoryManager> memory_manager) // NOLINT
     : _memory_group(std::move(memory_manager)),
       _conv_f(),
       _upsample_f(),
       _flip_weights(),
-      _permute_input(),
-      _permute_weights(),
-      _permute_output(),
       _scaled_output(),
       _weights_flipped(),
-      _permuted_input(),
-      _permuted_weights(),
-      _permuted_output(),
-      _is_nchw(false),
+      _flip_axis(),
       _original_weights(nullptr),
       _input(nullptr),
       _info(),
@@ -57,22 +84,23 @@ NEDeconvolutionLayer::NEDeconvolutionLayer(std::shared_ptr<IMemoryManager> memor
 Status NEDeconvolutionLayer::validate(const ITensorInfo *input, const ITensorInfo *weights, const ITensorInfo *bias, const ITensorInfo *output, const PadStrideInfo &info)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, weights, output);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::F32, DataType::F16, DataType::QASYMM8);
-    ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(weights, input);
-    ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_LAYOUT(weights, input);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::F32, DataType::F16, DataType::QASYMM8, DataType::QASYMM8_SIGNED);
     const unsigned int width_idx  = get_data_layout_dimension_index(weights->data_layout(), DataLayoutDimension::WIDTH);
     const unsigned int height_idx = get_data_layout_dimension_index(weights->data_layout(), DataLayoutDimension::HEIGHT);
     ARM_COMPUTE_RETURN_ERROR_ON(weights->dimension(width_idx) != weights->dimension(height_idx));
     ARM_COMPUTE_RETURN_ERROR_ON(weights->dimension(width_idx) < 1);
-    ARM_COMPUTE_RETURN_ERROR_ON(!info.padding_is_symmetric());
+    ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_LAYOUT(weights, input);
+    if(is_data_type_quantized_per_channel(weights->data_type()) && is_data_type_quantized(input->data_type()))
+    {
+        ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(weights, 1, DataType::QSYMM8_PER_CHANNEL);
+    }
+    else
+    {
+        ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input, weights);
+    }
 
-    const unsigned int stride_x = info.stride().first;
-    const unsigned int stride_y = info.stride().second;
+    auto out_dims = deconvolution_output_dimensions(input->dimension(width_idx), input->dimension(height_idx), weights->dimension(width_idx), weights->dimension(height_idx), info);
 
-    auto out_dims = deconvolution_output_dimensions(input->dimension(width_idx), input->dimension(height_idx), weights->dimension(width_idx), weights->dimension(height_idx),
-                                                    info.pad().first, info.pad().second, stride_x, stride_y);
-
-    ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input, weights);
     if(bias != nullptr)
     {
         if(is_data_type_quantized_asymmetric(input->data_type()))
@@ -96,9 +124,22 @@ Status NEDeconvolutionLayer::validate(const ITensorInfo *input, const ITensorInf
         ARM_COMPUTE_RETURN_ERROR_ON_MSG(output->dimension(Window::DimZ) != output_shape.z(), "Output's depth is invalid.");
     }
 
-    unsigned int        padx            = 0;
-    unsigned int        pady            = 0;
-    const TensorShape   scale_out_shape = compute_deconvolution_upsampled_shape(*input, *weights, stride_x, stride_y, out_dims, padx, pady);
+    uint32_t           deconv_pad_x = 0;
+    uint32_t           deconv_pad_y = 0;
+    const unsigned int stride_x     = info.stride().first;
+    const unsigned int stride_y     = info.stride().second;
+    // Guard against overflows in compute_deconvolution_upsampled_shape()
+    const DataLayout   data_layout = input->data_layout();
+    const size_t       idx_w       = get_data_layout_dimension_index(data_layout, DataLayoutDimension::WIDTH);
+    const size_t       idx_h       = get_data_layout_dimension_index(data_layout, DataLayoutDimension::HEIGHT);
+    const unsigned int out_x       = (input->dimension(idx_w) - 1) * stride_x + 1;
+    const unsigned int out_y       = (input->dimension(idx_h) - 1) * stride_y + 1;
+    ARM_COMPUTE_RETURN_ERROR_ON(weights->dimension(idx_w) > out_x);
+    ARM_COMPUTE_RETURN_ERROR_ON(weights->dimension(idx_h) > out_y);
+    ARM_COMPUTE_RETURN_ERROR_ON((out_x - weights->dimension(idx_w) + 1) > out_dims.first);
+    ARM_COMPUTE_RETURN_ERROR_ON((out_y - weights->dimension(idx_h) + 1) > out_dims.second);
+
+    const TensorShape   scale_out_shape = compute_deconvolution_upsampled_shape(*input, *weights, stride_x, stride_y, out_dims, deconv_pad_x, deconv_pad_y);
     TensorInfo          scale_out_info(input->clone()->set_is_resizable(true).reset_padding().set_tensor_shape(scale_out_shape));
     const PadStrideInfo conv_info(1, 1, 0, 0, 0, 0, DimensionRoundingType::CEIL);
 
@@ -117,95 +158,58 @@ void NEDeconvolutionLayer::configure(ITensor *input, const ITensor *weights, con
     // Perform validation step
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, weights, output);
     ARM_COMPUTE_ERROR_THROW_ON(NEDeconvolutionLayer::validate(input->info(), weights->info(), (bias == nullptr) ? nullptr : bias->info(), output->info(), info));
+    ARM_COMPUTE_LOG_PARAMS(input, weights, bias, output, info);
 
-    const DataLayout data_layout = input->info()->data_layout();
+    const DataLayout   data_layout = input->info()->data_layout();
+    const unsigned int width_idx   = get_data_layout_dimension_index(data_layout, DataLayoutDimension::WIDTH);
+    const unsigned int height_idx  = get_data_layout_dimension_index(data_layout, DataLayoutDimension::HEIGHT);
+    auto               out_dims    = deconvolution_output_dimensions(input->info()->dimension(width_idx), input->info()->dimension(height_idx),
+                                                                     weights->info()->dimension(width_idx), weights->info()->dimension(height_idx), info);
+
+    const TensorShape output_shape = compute_deconvolution_output_shape(out_dims, *input->info(), *weights->info());
 
     _input            = input;
     _original_weights = weights;
     _info             = info;
     _is_prepared      = false;
-    _is_nchw          = data_layout == DataLayout::NCHW;
 
     const unsigned int stride_x = info.stride().first;
     const unsigned int stride_y = info.stride().second;
 
-    const unsigned int width_idx  = get_data_layout_dimension_index(data_layout, DataLayoutDimension::WIDTH);
-    const unsigned int height_idx = get_data_layout_dimension_index(data_layout, DataLayoutDimension::HEIGHT);
-    auto               out_dims   = deconvolution_output_dimensions(input->info()->dimension(width_idx), input->info()->dimension(height_idx), weights->info()->dimension(width_idx),
-                                                                    weights->info()->dimension(height_idx),
-                                                                    info.pad().first, info.pad().second, stride_x, stride_y);
-
-    const TensorShape output_shape = compute_deconvolution_output_shape(out_dims, *input->info(), *weights->info());
     // Output auto initialization if not yet initialized
     auto_init_if_empty(*output->info(), output_shape, 1, input->info()->data_type(), input->info()->quantization_info());
 
+    _flip_axis.allocator()->init(TensorInfo(TensorShape(2U), 1, DataType::U32));
     _memory_group.manage(&_scaled_output);
 
-    if(!_is_nchw)
-    {
-        _memory_group.manage(&_permuted_input);
-        _memory_group.manage(&_permuted_output);
+    _weights_flipped.allocator()->init(weights->info()->clone()->set_data_layout(data_layout));
+    _flip_weights.configure(weights, &_weights_flipped, &_flip_axis);
 
-        // Configure the function to transform the input tensor from NHWC -> NCHW
-        _permuted_input.info()->set_quantization_info(input->info()->quantization_info());
-        _permute_input.configure(input, &_permuted_input, PermutationVector(1U, 2U, 0U));
-        _permuted_input.info()->set_data_layout(DataLayout::NCHW);
+    // setup the function to convolve the upscaled output
+    const PadStrideInfo conv_info(1, 1, 0, 0, 0, 0, DimensionRoundingType::CEIL);
+    uint32_t            deconv_pad_x = 0;
+    uint32_t            deconv_pad_y = 0;
 
-        // Configure the function to transform the weights tensor from NHWC -> NCHW
-        _permuted_weights.info()->set_quantization_info(weights->info()->quantization_info());
-        _permute_weights.configure(weights, &_permuted_weights, PermutationVector(1U, 2U, 0U));
-        _permuted_weights.info()->set_data_layout(DataLayout::NCHW);
+    const TensorShape scale_out_shape = compute_deconvolution_upsampled_shape(*input->info(), *weights->info(),
+                                                                              stride_x, stride_y,
+                                                                              out_dims, deconv_pad_x, deconv_pad_y);
 
-        // Find the upsampled dimensions and the padding needed for the convolution with stride 1 in order to match output shape
-        unsigned int      padx            = 0;
-        unsigned int      pady            = 0;
-        const TensorShape scale_out_shape = compute_deconvolution_upsampled_shape(*_permuted_input.info(), *_permuted_weights.info(), stride_x, stride_y, out_dims, padx,
-                                                                                  pady);
+    const PadStrideInfo upsample_info = compute_upsample_info(info, deconv_pad_x, deconv_pad_y);
 
-        TensorInfo scale_out_info(scale_out_shape, 1, _permuted_input.info()->data_type(), _permuted_input.info()->quantization_info());
-        scale_out_info.set_data_layout(DataLayout::NCHW);
-        _scaled_output.allocator()->init(scale_out_info);
+    TensorInfo scale_out_info(scale_out_shape, 1, input->info()->data_type(), input->info()->quantization_info());
+    scale_out_info.set_data_layout(data_layout);
+    _scaled_output.allocator()->init(scale_out_info);
 
-        const PadStrideInfo upsample_info(stride_x, stride_y, padx / 2, pady / 2);
-        _upsample_f.configure(&_permuted_input, &_scaled_output, upsample_info);
+    _upsample_f.configure(input, &_scaled_output, upsample_info);
 
-        _weights_flipped.allocator()->init(*_permuted_weights.info()->clone());
-        _weights_flipped.info()->set_quantization_info(weights->info()->quantization_info());
-        _flip_weights.configure(&_permuted_weights, &_weights_flipped);
+    _conv_f.configure(&_scaled_output, &_weights_flipped, bias, output, conv_info);
 
-        // setup the function to convolve the upscaled output
-        const PadStrideInfo conv_info(1, 1, 0, 0, 0, 0, DimensionRoundingType::CEIL);
+    // Setup flip axis data
+    _flip_axis.allocator()->allocate();
+    auto axis_data = reinterpret_cast<uint32_t *>(_flip_axis.buffer());
+    axis_data[0]   = static_cast<uint32_t>(width_idx);
+    axis_data[1]   = static_cast<uint32_t>(height_idx);
 
-        _permuted_output.info()->set_quantization_info(output->info()->quantization_info());
-        _conv_f.configure(&_scaled_output, &_weights_flipped, bias, &_permuted_output, conv_info);
-
-        // Configure the function to transform the convoluted output to NHWC
-        _permute_output.configure(&_permuted_output, output, PermutationVector(2U, 0U, 1U));
-        _permuted_output.info()->set_data_layout(DataLayout::NCHW);
-
-        _permuted_input.allocator()->allocate();
-        _permuted_output.allocator()->allocate();
-    }
-    else
-    {
-        // Find the upsampled dimensions and the padding needed for the convolution with stride 1 in order to match output shape
-        unsigned int      padx            = 0;
-        unsigned int      pady            = 0;
-        const TensorShape scale_out_shape = compute_deconvolution_upsampled_shape(*input->info(), *weights->info(), stride_x, stride_y, out_dims, padx, pady);
-
-        TensorInfo scale_out_info(scale_out_shape, 1, input->info()->data_type(), input->info()->quantization_info());
-        scale_out_info.set_data_layout(data_layout);
-        _scaled_output.allocator()->init(scale_out_info);
-        const PadStrideInfo upsample_info(stride_x, stride_y, padx / 2, pady / 2);
-        _upsample_f.configure(input, &_scaled_output, upsample_info);
-
-        _weights_flipped.allocator()->init(weights->info()->clone()->set_data_layout(data_layout));
-        _flip_weights.configure(weights, &_weights_flipped);
-
-        // setup the function to convolve the upscaled output
-        const PadStrideInfo conv_info(1, 1, 0, 0, 0, 0, DimensionRoundingType::CEIL);
-        _conv_f.configure(&_scaled_output, &_weights_flipped, bias, output, conv_info);
-    }
     _scaled_output.allocator()->allocate();
 }
 
@@ -215,20 +219,8 @@ void NEDeconvolutionLayer::run()
 
     MemoryGroupResourceScope scope_mg(_memory_group);
 
-    // Permute input
-    if(!_is_nchw)
-    {
-        _permute_input.run();
-    }
-
     _upsample_f.run();
     _conv_f.run();
-
-    // Permute output
-    if(!_is_nchw)
-    {
-        _permute_output.run();
-    }
 }
 
 void NEDeconvolutionLayer::prepare()
@@ -236,33 +228,14 @@ void NEDeconvolutionLayer::prepare()
     if(!_is_prepared)
     {
         ARM_COMPUTE_ERROR_ON(!_original_weights->is_used());
-        // Permute weights
-        if(!_is_nchw)
-        {
-            // Manually manage _permuted_weights
-            _permuted_weights.allocator()->allocate();
-            _permute_weights.run();
-        }
 
         // Run weights flipping and mark original weights tensor as unused
         _weights_flipped.allocator()->allocate();
-        NEScheduler::get().schedule(&_flip_weights, Window::DimZ);
+        _flip_weights.run();
         _original_weights->mark_as_unused();
 
         // Prepare convolution
         _conv_f.prepare();
-
-        if(!_weights_flipped.is_used())
-        {
-            _weights_flipped.allocator()->free();
-        }
-
-        if(!_is_nchw)
-        {
-            // Manually manage _permuted_weights
-            // Free _permuted_weights as it not used after this method (prepare)
-            _permuted_weights.allocator()->free();
-        }
 
         _is_prepared = true;
     }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,17 +21,19 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_OMPSCHEDULER_H__
-#define __ARM_COMPUTE_OMPSCHEDULER_H__
+#ifndef ARM_COMPUTE_OMPSCHEDULER_H
+#define ARM_COMPUTE_OMPSCHEDULER_H
 
 #include "arm_compute/runtime/IScheduler.h"
 
 namespace arm_compute
 {
 /** Pool of threads to automatically split a kernel's execution among several threads. */
-class OMPScheduler : public IScheduler
+class OMPScheduler final : public IScheduler
 {
 public:
+    /** Constructor. */
+    OMPScheduler();
     /** Sets the number of threads the scheduler will use to run the kernels.
      *
      * @param[in] num_threads If set to 0, then the number returned by omp_get_max_threads() will be used, otherwise the number of threads specified.
@@ -42,11 +44,6 @@ public:
      * @return Number of threads available in OMPScheduler.
      */
     unsigned int num_threads() const override;
-    /** Access the scheduler singleton
-     *
-     * @return The scheduler
-     */
-    static OMPScheduler &get();
     /** Multithread the execution of the passed kernel if possible.
      *
      * The kernel will run on a single thread if any of these conditions is true:
@@ -58,6 +55,19 @@ public:
      */
     void schedule(ICPPKernel *kernel, const Hints &hints) override;
 
+    /** Multithread the execution of the passed kernel if possible.
+     *
+     * The kernel will run on a single thread if any of these conditions is true:
+     * - ICPPKernel::is_parallelisable() returns false
+     * - The scheduler has been initialized with only one thread.
+     *
+     * @param[in] kernel  Kernel to execute.
+     * @param[in] hints   Hints for the scheduler.
+     * @param[in] window  Window to use for kernel execution.
+     * @param[in] tensors Vector containing the tensors to operate on.
+     */
+    void schedule_op(ICPPKernel *kernel, const Hints &hints, const Window &window, ITensorPack &tensors) override;
+
 protected:
     /** Execute all the passed workloads
      *
@@ -68,10 +78,7 @@ protected:
     void run_workloads(std::vector<Workload> &workloads) override;
 
 private:
-    /** Constructor. */
-    OMPScheduler();
-
     unsigned int _num_threads;
 };
-}
-#endif /* __ARM_COMPUTE_OMPSCHEDULER_H__ */
+} // namespace arm_compute
+#endif /* ARM_COMPUTE_OMPSCHEDULER_H */

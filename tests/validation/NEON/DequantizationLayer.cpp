@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -48,6 +48,45 @@ const auto data_types = framework::dataset::make("DataType", { DataType::F16, Da
 #else  /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
 const auto data_types = framework::dataset::make("DataType", { DataType::F32 });
 #endif /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
+
+const auto dataset_quant_f32 = combine(combine(combine(datasets::SmallShapes(), datasets::QuantizedTypes()),
+                                               framework::dataset::make("DataType", DataType::F32)),
+                                       framework::dataset::make("DataLayout", { DataLayout::NCHW }));
+const auto dataset_quant_f16 = combine(combine(combine(datasets::SmallShapes(), datasets::QuantizedTypes()),
+                                               framework::dataset::make("DataType", DataType::F16)),
+                                       framework::dataset::make("DataLayout", { DataLayout::NCHW }));
+const auto dataset_quant_asymm_signed_f32 = combine(combine(combine(datasets::SmallShapes(),
+                                                                    framework::dataset::make("QuantizedTypes", { DataType::QASYMM8_SIGNED })),
+                                                            framework::dataset::make("DataType", DataType::F32)),
+                                                    framework::dataset::make("DataLayout", { DataLayout::NCHW }));
+const auto dataset_quant_asymm_signed_f16 = combine(combine(combine(datasets::SmallShapes(),
+                                                                    framework::dataset::make("QuantizedTypes", { DataType::QASYMM8_SIGNED })),
+                                                            framework::dataset::make("DataType", DataType::F16)),
+                                                    framework::dataset::make("DataLayout", { DataLayout::NCHW }));
+const auto dataset_quant_per_channel_f32 = combine(combine(combine(datasets::SmallShapes(), datasets::QuantizedPerChannelTypes()),
+                                                           framework::dataset::make("DataType", DataType::F32)),
+                                                   framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC }));
+const auto dataset_quant_per_channel_f16 = combine(combine(combine(datasets::SmallShapes(), datasets::QuantizedPerChannelTypes()),
+                                                           framework::dataset::make("DataType", DataType::F16)),
+                                                   framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC }));
+const auto dataset_quant_nightly_f32 = combine(combine(combine(datasets::LargeShapes(), datasets::QuantizedTypes()),
+                                                       framework::dataset::make("DataType", DataType::F32)),
+                                               framework::dataset::make("DataLayout", { DataLayout::NCHW }));
+const auto dataset_quant_nightly_f16 = combine(combine(combine(datasets::LargeShapes(), datasets::QuantizedTypes()),
+                                                       framework::dataset::make("DataType", DataType::F16)),
+                                               framework::dataset::make("DataLayout", { DataLayout::NCHW }));
+const auto dataset_quant_per_channel_nightly_f32 = combine(combine(combine(datasets::LargeShapes(), datasets::QuantizedPerChannelTypes()),
+                                                                   framework::dataset::make("DataType", DataType::F32)),
+                                                           framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC }));
+const auto dataset_quant_per_channel_nightly_f16 = combine(combine(combine(datasets::LargeShapes(), datasets::QuantizedPerChannelTypes()),
+                                                                   framework::dataset::make("DataType", DataType::F16)),
+                                                           framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC }));
+
+const auto dataset_precommit_f16 = concat(concat(dataset_quant_f16, dataset_quant_per_channel_f16), dataset_quant_asymm_signed_f16);
+const auto dataset_precommit_f32 = concat(concat(dataset_quant_f32, dataset_quant_per_channel_f32), dataset_quant_asymm_signed_f32);
+const auto dataset_nightly_f16   = concat(dataset_quant_f16, dataset_quant_per_channel_f16);
+const auto dataset_nightly_f32   = concat(dataset_quant_f32, dataset_quant_per_channel_f32);
+
 } // namespace
 
 TEST_SUITE(NEON)
@@ -61,14 +100,16 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(
                                                 TensorInfo(TensorShape(16U, 16U, 2U, 5U), 1, DataType::QASYMM8),   // Missmatching shapes
                                                 TensorInfo(TensorShape(17U, 16U, 16U, 5U), 1, DataType::QASYMM8),  // Valid
                                                 TensorInfo(TensorShape(16U, 16U, 16U, 5U), 1, DataType::QASYMM8),  // Valid
+                                                TensorInfo(TensorShape(16U, 16U, 16U, 5U), 1, DataType::QASYMM8_SIGNED),  // Valid
         }),
         framework::dataset::make("OutputInfo",{ TensorInfo(TensorShape(16U, 16U, 16U, 5U), 1, DataType::F32),
                                                 TensorInfo(TensorShape(16U, 16U, 16U, 5U), 1, DataType::U8),
                                                 TensorInfo(TensorShape(16U, 16U, 16U, 5U), 1, DataType::F32),
                                                 TensorInfo(TensorShape(17U, 16U, 16U, 5U), 1, DataType::F32),
                                                 TensorInfo(TensorShape(16U, 16U, 16U, 5U), 1, DataType::F32),
+                                                TensorInfo(TensorShape(16U, 16U, 16U, 5U), 1, DataType::F32),
         })),
-        framework::dataset::make("Expected", { false, false, false, true, true})),
+        framework::dataset::make("Expected", { false, false, false, true, true, true })),
         input_info, output_info, expected)
 {
     ARM_COMPUTE_EXPECT(bool(NEDequantizationLayer::validate(&input_info.clone()->set_is_resizable(false), &output_info.clone()->set_is_resizable(false))) == expected, framework::LogLevel::ERRORS);
@@ -76,45 +117,17 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(
 // clang-format on
 // *INDENT-ON*
 
-DATA_TEST_CASE(Configuration,
-               framework::DatasetMode::ALL,
-               combine(datasets::SmallShapes(), data_types),
-               shape, data_type)
-{
-    // Create tensors
-    Tensor src = create_tensor<Tensor>(shape, DataType::QASYMM8, 1, QuantizationInfo(0.5f, -10));
-    Tensor dst = create_tensor<Tensor>(shape, data_type);
-
-    ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
-
-    // Create and configure function
-    NEDequantizationLayer dequant_layer;
-    dequant_layer.configure(&src, &dst);
-
-    // Validate valid region
-    const ValidRegion valid_region = shape_to_valid_region(shape);
-    validate(src.info()->valid_region(), valid_region);
-    validate(dst.info()->valid_region(), valid_region);
-
-    // Validate padding
-    validate(src.info()->padding(), PaddingSize());
-    validate(dst.info()->padding(), PaddingSize());
-}
-
 template <typename T>
 using NEDequantizationLayerFixture = DequantizationValidationFixture<Tensor, Accessor, NEDequantizationLayer, T>;
 
 #ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
 TEST_SUITE(FP16)
-FIXTURE_DATA_TEST_CASE(RunSmall, NEDequantizationLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::SmallShapes(), datasets::QuantizedTypes()),
-                                                                                                                framework::dataset::make("DataType", DataType::F16)))
+FIXTURE_DATA_TEST_CASE(RunSmall, NEDequantizationLayerFixture<half>, framework::DatasetMode::PRECOMMIT, dataset_precommit_f16)
 {
     // Validate output
     validate(Accessor(_target), _reference);
 }
-FIXTURE_DATA_TEST_CASE(RunLarge, NEDequantizationLayerFixture<half>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::LargeShapes(), datasets::QuantizedTypes()),
-                                                                                                              framework::dataset::make("DataType", DataType::F16)))
+FIXTURE_DATA_TEST_CASE(RunLarge, NEDequantizationLayerFixture<half>, framework::DatasetMode::NIGHTLY, dataset_nightly_f16)
 {
     // Validate output
     validate(Accessor(_target), _reference);
@@ -123,14 +136,12 @@ TEST_SUITE_END() // FP16
 #endif           /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC */
 
 TEST_SUITE(FP32)
-FIXTURE_DATA_TEST_CASE(RunSmall, NEDequantizationLayerFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::SmallShapes(), datasets::QuantizedTypes()),
-                                                                                                                 framework::dataset::make("DataType", DataType::F32)))
+FIXTURE_DATA_TEST_CASE(RunSmall, NEDequantizationLayerFixture<float>, framework::DatasetMode::PRECOMMIT, dataset_precommit_f32)
 {
     // Validate output
     validate(Accessor(_target), _reference);
 }
-FIXTURE_DATA_TEST_CASE(RunLarge, NEDequantizationLayerFixture<float>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::LargeShapes(), datasets::QuantizedTypes()),
-                                                                                                               framework::dataset::make("DataType", DataType::F32)))
+FIXTURE_DATA_TEST_CASE(RunLarge, NEDequantizationLayerFixture<float>, framework::DatasetMode::NIGHTLY, dataset_nightly_f32)
 {
     // Validate output
     validate(Accessor(_target), _reference);
@@ -138,7 +149,7 @@ FIXTURE_DATA_TEST_CASE(RunLarge, NEDequantizationLayerFixture<float>, framework:
 TEST_SUITE_END() // FP32
 
 TEST_SUITE_END() // DequantizationLayer
-TEST_SUITE_END() // NEON
+TEST_SUITE_END() // Neon
 } // namespace validation
 } // namespace test
 } // namespace arm_compute

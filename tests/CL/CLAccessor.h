@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,11 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_CLACCESSOR_H__
-#define __ARM_COMPUTE_TEST_CLACCESSOR_H__
+#ifndef ARM_COMPUTE_TEST_CLACCESSOR_H
+#define ARM_COMPUTE_TEST_CLACCESSOR_H
 
 #include "arm_compute/runtime/CL/CLTensor.h"
 #include "tests/IAccessor.h"
+#include "tests/framework/Framework.h"
 
 namespace arm_compute
 {
@@ -50,8 +51,6 @@ public:
     CLAccessor &operator=(const CLAccessor &) = delete;
     /** Allow instances of this class to be move constructed */
     CLAccessor(CLAccessor &&) = default;
-    /** Allow instances of this class to be moved */
-    CLAccessor &operator=(CLAccessor &&) = default;
 
     /** Destructor that unmaps the CL memory. */
     ~CLAccessor();
@@ -88,12 +87,18 @@ private:
 inline CLAccessor::CLAccessor(CLTensor &tensor)
     : _tensor{ tensor }
 {
-    _tensor.map();
+    if(!framework::Framework::get().configure_only() || !framework::Framework::get().new_fixture_call())
+    {
+        _tensor.map();
+    }
 }
 
 inline CLAccessor::~CLAccessor()
 {
-    _tensor.unmap();
+    if(!framework::Framework::get().configure_only() || !framework::Framework::get().new_fixture_call())
+    {
+        _tensor.unmap();
+    }
 }
 
 inline TensorShape CLAccessor::shape() const
@@ -167,4 +172,4 @@ inline void *CLAccessor::operator()(const Coordinates &coord)
 }
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_CLACCESSOR_H__ */
+#endif /* ARM_COMPUTE_TEST_CLACCESSOR_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_ARRAY_H__
-#define __ARM_COMPUTE_ARRAY_H__
+#ifndef ARM_COMPUTE_ARRAY_H
+#define ARM_COMPUTE_ARRAY_H
 
 #include "arm_compute/core/IArray.h"
 #include "arm_compute/core/Types.h"
-#include "support/ToolchainSupport.h"
 
 #include <memory>
 
@@ -47,7 +46,7 @@ public:
      * @param[in] max_num_values Maximum number of values the array will be able to stored
      */
     Array(size_t max_num_values)
-        : IArray<T>(max_num_values), _values(arm_compute::support::cpp14::make_unique<T[]>(max_num_values))
+        : IArray<T>(max_num_values), _values(std::make_unique<T[]>(max_num_values))
     {
     }
 
@@ -61,14 +60,6 @@ private:
     std::unique_ptr<T[]> _values;
 };
 
-/** Array of Key Points. */
-using KeyPointArray = Array<KeyPoint>;
-/** Array of 2D Coordinates. */
-using Coordinates2DArray = Array<Coordinates2D>;
-/** Array of Detection Windows. */
-using DetectionWindowArray = Array<DetectionWindow>;
-/** Array of 2D Sizes. */
-using Size2DArray = Array<Size2D>;
 /** Array of uint8s. */
 using UInt8Array = Array<uint8_t>;
 /** Array of uint16s. */
@@ -82,4 +73,4 @@ using Int32Array = Array<int32_t>;
 /** Array of floats. */
 using FloatArray = Array<float>;
 }
-#endif /* __ARM_COMPUTE_ARRAY_H__ */
+#endif /* ARM_COMPUTE_ARRAY_H */

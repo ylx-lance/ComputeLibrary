@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,22 +23,49 @@
  */
 #include "arm_compute/runtime/NEON/functions/NEArithmeticAddition.h"
 
-#include "arm_compute/core/ITensor.h"
-#include "arm_compute/core/NEON/kernels/NEArithmeticAdditionKernel.h"
-#include "support/ToolchainSupport.h"
+#include "arm_compute/core/Validate.h"
+#include "src/cpu/operators/CpuAdd.h"
 
 #include <utility>
 
 namespace arm_compute
 {
-void NEArithmeticAddition::configure(ITensor *input1, ITensor *input2, ITensor *output, ConvertPolicy policy)
+struct NEArithmeticAddition::Impl
 {
-    auto k = arm_compute::support::cpp14::make_unique<NEArithmeticAdditionKernel>();
-    k->configure(input1, input2, output, policy);
-    _kernel = std::move(k);
+    const ITensor               *src_0{ nullptr };
+    const ITensor               *src_1{ nullptr };
+    ITensor                     *dst{ nullptr };
+    std::unique_ptr<cpu::CpuAdd> op{ nullptr };
+};
+
+NEArithmeticAddition::NEArithmeticAddition()
+    : _impl(std::make_unique<Impl>())
+{
 }
-Status NEArithmeticAddition::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, ConvertPolicy policy)
+NEArithmeticAddition::NEArithmeticAddition(NEArithmeticAddition &&) = default;
+NEArithmeticAddition &NEArithmeticAddition::operator=(NEArithmeticAddition &&) = default;
+NEArithmeticAddition::~NEArithmeticAddition()                                  = default;
+
+Status NEArithmeticAddition::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, ConvertPolicy policy, const ActivationLayerInfo &act_info)
 {
-    return NEArithmeticAdditionKernel::validate(input1, input2, output, policy);
+    return cpu::CpuAdd::validate(input1, input2, output, policy, act_info);
+}
+
+void NEArithmeticAddition::configure(const ITensor *input1, const ITensor *input2, ITensor *output, ConvertPolicy policy, const ActivationLayerInfo &act_info)
+{
+    _impl->src_0 = input1;
+    _impl->src_1 = input2;
+    _impl->dst   = output;
+    _impl->op    = std::make_unique<cpu::CpuAdd>();
+    _impl->op->configure(_impl->src_0->info(), _impl->src_1->info(), _impl->dst->info(), policy, act_info);
+}
+
+void NEArithmeticAddition::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC_0, _impl->src_0);
+    pack.add_tensor(TensorType::ACL_SRC_1, _impl->src_1);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+    _impl->op->run(pack);
 }
 } // namespace arm_compute

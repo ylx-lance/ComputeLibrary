@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,10 +23,7 @@
  */
 #include "arm_compute/runtime/NEON/functions/NEConcatenateLayer.h"
 
-#include "arm_compute/core/NEON/kernels/NEBatchConcatenateLayerKernel.h"
-#include "arm_compute/core/NEON/kernels/NEDepthConcatenateLayerKernel.h"
-#include "arm_compute/core/NEON/kernels/NEHeightConcatenateLayerKernel.h"
-#include "arm_compute/core/NEON/kernels/NEWidthConcatenateLayerKernel.h"
+#include "src/cpu/operators/CpuConcatenate.h"
 
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
@@ -35,150 +32,60 @@
 #include "arm_compute/core/ITensor.h"
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Types.h"
-#include "support/ToolchainSupport.h"
+#include "src/core/helpers/AutoConfiguration.h"
 
 namespace arm_compute
 {
-NEConcatenateLayer::NEConcatenateLayer()
-    : _concat_kernels(),
-      _num_inputs(0),
-      _axis(Window::DimX)
+struct NEConcatenateLayer::Impl
 {
-}
+    std::vector<const ITensor *>         srcs{};
+    ITensor                             *dst{ nullptr };
+    unsigned int                         num_inputs{ 0 };
+    unsigned int                         axis{ 0 };
+    std::unique_ptr<cpu::CpuConcatenate> op{ nullptr };
+};
 
-void NEConcatenateLayer::configure(std::vector<ITensor *> inputs_vector, ITensor *output, size_t axis)
+NEConcatenateLayer::NEConcatenateLayer()
+    : _impl(std::make_unique<Impl>())
 {
-    configure_internal(std::move(inputs_vector), output, axis);
 }
+NEConcatenateLayer::NEConcatenateLayer(NEConcatenateLayer &&) = default;
+NEConcatenateLayer &NEConcatenateLayer::operator=(NEConcatenateLayer &&) = default;
+NEConcatenateLayer::~NEConcatenateLayer()                                = default;
 
 void NEConcatenateLayer::configure(std::vector<const ITensor *> inputs_vector, ITensor *output, size_t axis)
 {
-    configure_internal(std::move(inputs_vector), output, axis);
-}
-
-Status NEConcatenateLayer::validate(const std::vector<ITensorInfo *> &inputs_vector, const ITensorInfo *output, size_t axis)
-{
-    return validate_internal(inputs_vector, output, axis);
-}
-
-Status NEConcatenateLayer::validate(const std::vector<const ITensorInfo *> &inputs_vector, const ITensorInfo *output, size_t axis)
-{
-    return validate_internal(inputs_vector, output, axis);
-}
-
-template <typename TensorType, typename>
-void NEConcatenateLayer::configure_internal(std::vector<TensorType *> &&inputs_vector, ITensor *output, size_t axis)
-{
     ARM_COMPUTE_ERROR_ON(output == nullptr);
-    _axis       = axis;
-    _num_inputs = inputs_vector.size();
 
-    std::vector<ITensorInfo *> inputs_vector_info;
-    inputs_vector_info.reserve(_num_inputs);
-    for(unsigned int i = 0; i < _num_inputs; ++i)
+    _impl->srcs       = inputs_vector;
+    _impl->dst        = output;
+    _impl->axis       = axis;
+    _impl->num_inputs = inputs_vector.size();
+    _impl->op         = std::make_unique<cpu::CpuConcatenate>();
+
+    std::vector<const ITensorInfo *> inputs_vector_info;
+    for(unsigned int i = 0; i < inputs_vector.size(); ++i)
     {
         ARM_COMPUTE_ERROR_ON_NULLPTR(inputs_vector.at(i));
         inputs_vector_info.emplace_back(inputs_vector.at(i)->info());
     }
-    TensorShape output_shape = arm_compute::misc::shape_calculator::calculate_concatenate_shape(inputs_vector, _axis);
-
-    // Output auto inizialitation if not yet initialized
-    auto_init_if_empty(*output->info(), output_shape, 1, inputs_vector[0]->info()->data_type());
-    ARM_COMPUTE_ERROR_THROW_ON(NEConcatenateLayer::validate(inputs_vector_info, output->info(), axis));
-
-    unsigned int offset = 0;
-
-    for(unsigned int i = 0; i < _num_inputs; ++i)
-    {
-        switch(_axis)
-        {
-            case Window::DimX:
-            {
-                auto kernel = support::cpp14::make_unique<NEWidthConcatenateLayerKernel>();
-                kernel->configure(inputs_vector.at(i), offset, output);
-                _concat_kernels.emplace_back(std::move(kernel));
-                break;
-            }
-            case Window::DimY:
-            {
-                auto kernel = support::cpp14::make_unique<NEHeightConcatenateLayerKernel>();
-                kernel->configure(inputs_vector.at(i), offset, output);
-                _concat_kernels.emplace_back(std::move(kernel));
-                break;
-            }
-            case Window::DimZ:
-            {
-                auto kernel = support::cpp14::make_unique<NEDepthConcatenateLayerKernel>();
-                kernel->configure(inputs_vector.at(i), offset, output);
-                _concat_kernels.emplace_back(std::move(kernel));
-                break;
-            }
-            case 3:
-            {
-                auto kernel = support::cpp14::make_unique<NEBatchConcatenateLayerKernel>();
-                kernel->configure(inputs_vector.at(i), offset, output);
-                _concat_kernels.emplace_back(std::move(kernel));
-                break;
-            }
-            default:
-                ARM_COMPUTE_ERROR("Axis not supported");
-        }
-        offset += inputs_vector.at(i)->info()->dimension(_axis);
-    }
+    _impl->op->configure(inputs_vector_info, _impl->dst->info(), axis);
 }
 
-template <typename TensorInfoType, typename>
-Status NEConcatenateLayer::validate_internal(const std::vector<TensorInfoType *> &inputs_vector, const ITensorInfo *output, size_t axis)
+Status NEConcatenateLayer::validate(const std::vector<const ITensorInfo *> &inputs_vector, const ITensorInfo *output, size_t axis)
 {
-    ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(output);
-    ARM_COMPUTE_RETURN_ERROR_ON(inputs_vector.size() < 2);
-
-    unsigned int offset = 0;
-    for(const auto &input : inputs_vector)
-    {
-        ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input);
-        switch(axis)
-        {
-            case Window::DimX:
-            {
-                ARM_COMPUTE_RETURN_ON_ERROR(NEWidthConcatenateLayerKernel::validate(input, offset, output));
-                break;
-            }
-            case Window::DimY:
-            {
-                ARM_COMPUTE_RETURN_ON_ERROR(NEHeightConcatenateLayerKernel::validate(input, offset, output));
-                break;
-            }
-            case Window::DimZ:
-            {
-                ARM_COMPUTE_RETURN_ON_ERROR(NEDepthConcatenateLayerKernel::validate(input, offset, output));
-                break;
-            }
-            case 3:
-            {
-                ARM_COMPUTE_RETURN_ON_ERROR(NEBatchConcatenateLayerKernel::validate(input, offset, output));
-                break;
-            }
-            default:
-                ARM_COMPUTE_ERROR("Axis not supported");
-        }
-        offset += input->dimension(axis);
-    }
-
-    if(output->total_size() != 0)
-    {
-        TensorShape output_shape = arm_compute::misc::shape_calculator::calculate_concatenate_shape(inputs_vector, axis);
-        ARM_COMPUTE_RETURN_ERROR_ON(output_shape.total_size() != output->tensor_shape().total_size());
-    }
-
-    return Status{};
+    return cpu::CpuConcatenate::validate(inputs_vector, output, axis);
 }
 
 void NEConcatenateLayer::run()
 {
-    for(auto &kernel : _concat_kernels)
+    ITensorPack pack;
+    for(unsigned i = 0; i < _impl->num_inputs; ++i)
     {
-        NEScheduler::get().schedule(kernel.get(), _axis);
+        pack.add_tensor(TensorType::ACL_SRC_VEC + i, _impl->srcs.at(i));
     }
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+
+    _impl->op->run(pack);
 }
 } // namespace arm_compute

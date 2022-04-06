@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,38 +21,43 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLGENERATEPROPOSALSLAYER_H__
-#define __ARM_COMPUTE_CLGENERATEPROPOSALSLAYER_H__
-#include "arm_compute/core/CL/kernels/CLBoundingBoxTransformKernel.h"
-#include "arm_compute/core/CL/kernels/CLCopyKernel.h"
-#include "arm_compute/core/CL/kernels/CLGenerateProposalsLayerKernel.h"
-#include "arm_compute/core/CL/kernels/CLMemsetKernel.h"
-#include "arm_compute/core/CL/kernels/CLPermuteKernel.h"
-#include "arm_compute/core/CL/kernels/CLReshapeLayerKernel.h"
-#include "arm_compute/core/CL/kernels/CLStridedSliceKernel.h"
-#include "arm_compute/core/CPP/kernels/CPPBoxWithNonMaximaSuppressionLimitKernel.h"
+#ifndef ARM_COMPUTE_CLGENERATEPROPOSALSLAYER_H
+#define ARM_COMPUTE_CLGENERATEPROPOSALSLAYER_H
+
 #include "arm_compute/core/Types.h"
-#include "arm_compute/runtime/CL/CLMemoryGroup.h"
 #include "arm_compute/runtime/CL/CLScheduler.h"
 #include "arm_compute/runtime/CL/CLTensor.h"
+#include "arm_compute/runtime/CL/functions/CLPermute.h"
+#include "arm_compute/runtime/CL/functions/CLReshapeLayer.h"
 #include "arm_compute/runtime/CPP/CPPScheduler.h"
+#include "arm_compute/runtime/CPP/functions/CPPBoxWithNonMaximaSuppressionLimit.h"
 #include "arm_compute/runtime/IFunction.h"
+#include "arm_compute/runtime/MemoryGroup.h"
+
+#include <memory>
 
 namespace arm_compute
 {
+class CLCompileContext;
+class CLBoundingBoxTransformKernel;
+class CLDequantizationLayer;
+class CLComputeAllAnchorsKernel;
+class CLPadLayerKernel;
+class CLQuantizationLayer;
 class ICLTensor;
+class ITensorInfo;
 
 /** Basic function to generate proposals for a RPN (Region Proposal Network)
  *
  * This function calls the following OpenCL kernels:
- * -# @ref CLComputeAllAnchors
+ * -# @ref CLComputeAllAnchorsKernel
  * -# @ref CLPermute x 2
  * -# @ref CLReshapeLayer x 2
- * -# @ref CLStridedSlice x 3
  * -# @ref CLBoundingBoxTransform
- * -# @ref CLCopyKernel
- * -# @ref CLMemsetKernel
- * And the following CPP kernels:
+ * -# @ref CLPadLayerKernel
+ * -# @ref CLDequantizationLayer x 2
+ * -# @ref CLQuantizationLayer
+ * And the following CPP functions:
  * -# @ref CPPBoxWithNonMaximaSuppressionLimit
  */
 class CLGenerateProposalsLayer : public IFunction
@@ -65,20 +70,30 @@ public:
     CLGenerateProposalsLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     CLGenerateProposalsLayer(const CLGenerateProposalsLayer &) = delete;
-    /** Default move constructor */
-    CLGenerateProposalsLayer(CLGenerateProposalsLayer &&) = default;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     CLGenerateProposalsLayer &operator=(const CLGenerateProposalsLayer &) = delete;
-    /** Default move assignment operator */
-    CLGenerateProposalsLayer &operator=(CLGenerateProposalsLayer &&) = default;
+    /** Default destructor */
+    ~CLGenerateProposalsLayer();
 
     /** Set the input and output tensors.
      *
-     * @param[in]  scores              Scores from convolution layer of size (W, H, A), where H and W are the height and width of the feature map, and A is the number of anchors. Data types supported: F16/F32
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src0           |src1               |src2     |dst            |
+     * |:--------------|:------------------|:--------|:--------------|
+     * |F16            |F16                |F16      |F16            |
+     * |F32            |F32                |F32      |F32            |
+     * |QASYMM8        |QSYMM8             |QSYMM16  |QASYMM8        |
+     *
+     * @param[in]  scores              Scores from convolution layer of size (W, H, A), where H and W are the height and width of the feature map, and A is the number of anchors.
+     *                                 Data types supported: QASYMM8/F16/F32
      * @param[in]  deltas              Bounding box deltas from convolution layer of size (W, H, 4*A). Data types supported: Same as @p scores
-     * @param[in]  anchors             Anchors tensor of size (4, A). Data types supported: Same as @p input
-     * @param[out] proposals           Box proposals output tensor of size (5, W*H*A). Data types supported: Same as @p input
-     * @param[out] scores_out          Box scores output tensor of size (W*H*A). Data types supported: Same as @p input
+     * @param[in]  anchors             Anchors tensor of size (4, A). Data types supported: QSYMM16 with scale of 0.125 if @p scores is QASYMM8, otherwise same as @p scores
+     * @param[out] proposals           Box proposals output tensor of size (5, W*H*A).
+     *                                 Data types supported: QASYMM16 with scale of 0.125 and 0 offset if @p scores is QASYMM8, otherwise same as @p scores
+     * @param[out] scores_out          Box scores output tensor of size (W*H*A). Data types supported: Same as @p scores
      * @param[out] num_valid_proposals Scalar output tensor which says which of the first proposals are valid. Data types supported: U32
      * @param[in]  info                Contains GenerateProposals operation information described in @ref GenerateProposalsInfo
      *
@@ -87,15 +102,35 @@ public:
      */
     void configure(const ICLTensor *scores, const ICLTensor *deltas, const ICLTensor *anchors, ICLTensor *proposals, ICLTensor *scores_out, ICLTensor *num_valid_proposals,
                    const GenerateProposalsInfo &info);
+    /** Set the input and output tensors.
+     *
+     * @param[in]  compile_context     The compile context to be used.
+     * @param[in]  scores              Scores from convolution layer of size (W, H, A), where H and W are the height and width of the feature map, and A is the number of anchors.
+     *                                 Data types supported: QASYMM8/F16/F32
+     * @param[in]  deltas              Bounding box deltas from convolution layer of size (W, H, 4*A). Data types supported: Same as @p scores
+     * @param[in]  anchors             Anchors tensor of size (4, A). Data types supported: QSYMM16 with scale of 0.125 if @p scores is QASYMM8, otherwise same as @p scores
+     * @param[out] proposals           Box proposals output tensor of size (5, W*H*A).
+     *                                 Data types supported: QASYMM16 with scale of 0.125 and 0 offset if @p scores is QASYMM8, otherwise same as @p scores
+     * @param[out] scores_out          Box scores output tensor of size (W*H*A). Data types supported: Same as @p scores
+     * @param[out] num_valid_proposals Scalar output tensor which says which of the first proposals are valid. Data types supported: U32
+     * @param[in]  info                Contains GenerateProposals operation information described in @ref GenerateProposalsInfo
+     *
+     * @note Only single image prediction is supported. Height and Width (and scale) of the image will be contained in the @ref GenerateProposalsInfo struct.
+     * @note Proposals contains all the proposals. Of those, only the first num_valid_proposals are valid.
+     */
+    void configure(const CLCompileContext &compile_context, const ICLTensor *scores, const ICLTensor *deltas, const ICLTensor *anchors, ICLTensor *proposals, ICLTensor *scores_out,
+                   ICLTensor *num_valid_proposals, const GenerateProposalsInfo &info);
 
     /** Static function to check if given info will lead to a valid configuration of @ref CLGenerateProposalsLayer
      *
-     * @param[in] scores              Scores info from convolution layer of size (W, H, A), where H and W are the height and width of the feature map, and A is the number of anchors. Data types supported: F16/F32
+     * @param[in] scores              Scores info from convolution layer of size (W, H, A), where H and W are the height and width of the feature map, and A is the number of anchors.
+     *                                Data types supported: QASYMM8/F16/F32
      * @param[in] deltas              Bounding box deltas info from convolution layer of size (W, H, 4*A). Data types supported: Same as @p scores
-     * @param[in] anchors             Anchors tensor info of size (4, A). Data types supported: Same as @p input
-     * @param[in] proposals           Box proposals info  output tensor of size (5, W*H*A). Data types supported: Data types supported: U32
-     * @param[in] scores_out          Box scores output tensor info of size (W*H*A). Data types supported: Same as @p input
-     * @param[in] num_valid_proposals Scalar output tensor info which says which of the first proposals are valid. Data types supported: Same as @p input
+     * @param[in] anchors             Anchors tensor of size (4, A). Data types supported: QSYMM16 with scale of 0.125 if @p scores is QASYMM8, otherwise same as @p scores
+     * @param[in] proposals           Box proposals info  output tensor of size (5, W*H*A).
+     *                                Data types supported: QASYMM16 with scale of 0.125 and 0 offset if @p scores is QASYMM8, otherwise same as @p scores
+     * @param[in] scores_out          Box scores output tensor info of size (W*H*A). Data types supported: Same as @p scores
+     * @param[in] num_valid_proposals Scalar output tensor info which says which of the first proposals are valid. Data types supported: U32
      * @param[in] info                Contains GenerateProposals operation information described in @ref GenerateProposalsInfo
      *
      * @return a Status
@@ -109,33 +144,42 @@ public:
 
 private:
     // Memory group manager
-    CLMemoryGroup _memory_group;
+    MemoryGroup _memory_group;
 
     // OpenCL kernels
-    CLPermuteKernel              _permute_deltas_kernel;
-    CLReshapeLayerKernel         _flatten_deltas_kernel;
-    CLPermuteKernel              _permute_scores_kernel;
-    CLReshapeLayerKernel         _flatten_scores_kernel;
-    CLComputeAllAnchorsKernel    _compute_anchors_kernel;
-    CLBoundingBoxTransformKernel _bounding_box_kernel;
-    CLMemsetKernel               _memset_kernel;
-    CLCopyKernel                 _padded_copy_kernel;
+    CLPermute                                     _permute_deltas;
+    CLReshapeLayer                                _flatten_deltas;
+    CLPermute                                     _permute_scores;
+    CLReshapeLayer                                _flatten_scores;
+    std::unique_ptr<CLComputeAllAnchorsKernel>    _compute_anchors_kernel;
+    std::unique_ptr<CLBoundingBoxTransformKernel> _bounding_box_kernel;
+    std::unique_ptr<CLPadLayerKernel>             _pad_kernel;
+    std::unique_ptr<CLDequantizationLayer>        _dequantize_anchors;
+    std::unique_ptr<CLDequantizationLayer>        _dequantize_deltas;
+    std::unique_ptr<CLQuantizationLayer>          _quantize_all_proposals;
 
-    // CPP kernels
-    CPPBoxWithNonMaximaSuppressionLimitKernel _cpp_nms_kernel;
+    // CPP functions
+    CPPBoxWithNonMaximaSuppressionLimit _cpp_nms;
 
     bool _is_nhwc;
+    bool _is_qasymm8;
 
     // Temporary tensors
     CLTensor _deltas_permuted;
     CLTensor _deltas_flattened;
+    CLTensor _deltas_flattened_f32;
     CLTensor _scores_permuted;
     CLTensor _scores_flattened;
     CLTensor _all_anchors;
+    CLTensor _all_anchors_f32;
     CLTensor _all_proposals;
+    CLTensor _all_proposals_quantized;
     CLTensor _keeps_nms_unused;
     CLTensor _classes_nms_unused;
     CLTensor _proposals_4_roi_values;
+
+    // Temporary tensor pointers
+    CLTensor *_all_proposals_to_use;
 
     // Output tensor pointers
     ICLTensor *_num_valid_proposals;
@@ -145,4 +189,4 @@ private:
     void run_cpp_nms_kernel();
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLGENERATEPROPOSALSLAYER_H__ */
+#endif /* ARM_COMPUTE_CLGENERATEPROPOSALSLAYER_H */

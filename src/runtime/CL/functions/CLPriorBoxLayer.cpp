@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,12 +24,15 @@
 
 #include "arm_compute/runtime/CL/functions/CLPriorBoxLayer.h"
 
-#include "arm_compute/core/CL/kernels/CLPriorBoxLayerKernel.h"
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/runtime/CL/CLScheduler.h"
+#include "src/core/CL/kernels/CLFillBorderKernel.h"
+#include "src/core/CL/kernels/CLPriorBoxLayerKernel.h"
+
+#include "src/common/utils/Log.h"
 
 using namespace arm_compute;
 
@@ -40,6 +43,12 @@ CLPriorBoxLayer::CLPriorBoxLayer()
 
 void CLPriorBoxLayer::configure(const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output, const PriorBoxLayerInfo &info)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input1, input2, output, info);
+}
+
+void CLPriorBoxLayer::configure(const CLCompileContext &compile_context, const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output, const PriorBoxLayerInfo &info)
+{
+    ARM_COMPUTE_LOG_PARAMS(input1, input2, output, info);
     _min           = cl::Buffer(CLScheduler::get().context(), CL_MEM_ALLOC_HOST_PTR | CL_MEM_READ_WRITE, info.min_sizes().size() * sizeof(float));
     _aspect_ratios = cl::Buffer(CLScheduler::get().context(), CL_MEM_ALLOC_HOST_PTR | CL_MEM_READ_WRITE, info.aspect_ratios().size() * sizeof(float));
     if(!info.max_sizes().empty())
@@ -47,8 +56,8 @@ void CLPriorBoxLayer::configure(const ICLTensor *input1, const ICLTensor *input2
         _max = cl::Buffer(CLScheduler::get().context(), CL_MEM_ALLOC_HOST_PTR | CL_MEM_READ_WRITE, info.max_sizes().size() * sizeof(float));
     }
 
-    auto k = arm_compute::support::cpp14::make_unique<CLPriorBoxLayerKernel>();
-    k->configure(input1, input2, output, info, &_min, &_max, &_aspect_ratios);
+    auto k = std::make_unique<CLPriorBoxLayerKernel>();
+    k->configure(compile_context, input1, input2, output, info, &_min, &_max, &_aspect_ratios);
     _kernel = std::move(k);
 }
 

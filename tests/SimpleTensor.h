@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,13 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_SIMPLE_TENSOR_H__
-#define __ARM_COMPUTE_TEST_SIMPLE_TENSOR_H__
+#ifndef ARM_COMPUTE_TEST_SIMPLE_TENSOR_H
+#define ARM_COMPUTE_TEST_SIMPLE_TENSOR_H
 
 #include "arm_compute/core/TensorShape.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Utils.h"
-#include "support/ToolchainSupport.h"
 #include "tests/IAccessor.h"
 #include "tests/Utils.h"
 
@@ -268,7 +267,7 @@ SimpleTensor<T>::SimpleTensor(TensorShape shape, Format format)
       _data_layout(DataLayout::NCHW)
 {
     _num_channels = num_channels();
-    _buffer       = support::cpp14::make_unique<T[]>(num_elements() * _num_channels);
+    _buffer       = std::make_unique<T[]>(num_elements() * _num_channels);
 }
 
 template <typename T>
@@ -280,7 +279,7 @@ SimpleTensor<T>::SimpleTensor(TensorShape shape, DataType data_type, int num_cha
       _quantization_info(quantization_info),
       _data_layout(data_layout)
 {
-    _buffer = support::cpp14::make_unique<T[]>(this->_shape.total_size() * _num_channels);
+    _buffer = std::make_unique<T[]>(this->_shape.total_size() * _num_channels);
 }
 
 template <typename T>
@@ -293,7 +292,7 @@ SimpleTensor<T>::SimpleTensor(const SimpleTensor &tensor)
       _quantization_info(tensor.quantization_info()),
       _data_layout(tensor.data_layout())
 {
-    _buffer = support::cpp14::make_unique<T[]>(tensor.num_elements() * _num_channels);
+    _buffer = std::make_unique<T[]>(tensor.num_elements() * _num_channels);
     std::copy_n(tensor.data(), this->_shape.total_size() * _num_channels, _buffer.get());
 }
 
@@ -454,4 +453,4 @@ void swap(SimpleTensor<U> &tensor1, SimpleTensor<U> &tensor2)
 }
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_SIMPLE_TENSOR_H__ */
+#endif /* ARM_COMPUTE_TEST_SIMPLE_TENSOR_H */

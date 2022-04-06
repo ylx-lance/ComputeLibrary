@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CPPPERMUTEKERNEL_H__
-#define __ARM_COMPUTE_CPPPERMUTEKERNEL_H__
+#ifndef ARM_COMPUTE_CPPPERMUTEKERNEL_H
+#define ARM_COMPUTE_CPPPERMUTEKERNEL_H
 
 #include "arm_compute/core/CPP/ICPPKernel.h"
 
@@ -56,15 +56,15 @@ public:
 
     /** Set the input and output of the kernel.
      *
-     * @param[in]  input  The input tensor to permute. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32
-     * @param[out] output The output tensor. Data types supported: Same as @p input
+     * @param[in]  input  The input tensor to permute. Data types supported: All.
+     * @param[out] output The output tensor. Data types supported: same as @p input
      * @param[in]  perm   Permutation vector
      */
     void configure(const ITensor *input, ITensor *output, const PermutationVector &perm);
     /** Static function to check if given info will lead to a valid configuration of @ref CPPPermuteKernel
      *
-     * @param[in] input  The input tensor to permute. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32
-     * @param[in] output The output tensor. Data types supported: Same as @p input
+     * @param[in] input  The input tensor to permute. Data types supported: All.
+     * @param[in] output The output tensor. Data types supported: same as @p input
      * @param[in] perm   Permutation vector
      *
      * @return a status
@@ -94,4 +94,4 @@ private:
     PermutationVector  _perm;
 };
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_CPPPERMUTEKERNEL_H__ */
+#endif /*ARM_COMPUTE_CPPPERMUTEKERNEL_H */

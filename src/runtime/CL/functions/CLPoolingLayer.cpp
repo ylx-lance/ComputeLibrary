@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,52 +23,53 @@
  */
 #include "arm_compute/runtime/CL/functions/CLPoolingLayer.h"
 
+#include "arm_compute/core/CL/CLKernelLibrary.h"
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/CL/kernels/CLPoolingLayerKernel.h"
-#include "arm_compute/runtime/CL/CLScheduler.h"
-#include "support/ToolchainSupport.h"
+#include "src/core/CL/ICLKernel.h"
+#include "src/gpu/cl/operators/ClPool2d.h"
 
-using namespace arm_compute;
-
-void CLPoolingLayer::configure(ICLTensor *input, ICLTensor *output, const PoolingLayerInfo &pool_info)
+namespace arm_compute
 {
-    ARM_COMPUTE_ERROR_ON_NULLPTR(input);
+struct CLPoolingLayer::Impl
+{
+    const ICLTensor                  *src{ nullptr };
+    ICLTensor                        *dst{ nullptr };
+    ICLTensor                        *indices{ nullptr };
+    std::unique_ptr<opencl::ClPool2d> op{ nullptr };
+};
 
-    // Configure pooling kernel
-    auto k = arm_compute::support::cpp14::make_unique<CLPoolingLayerKernel>();
-    k->set_target(CLScheduler::get().target());
-    k->configure(input, output, pool_info);
-    _kernel = std::move(k);
+CLPoolingLayer::CLPoolingLayer()
+    : _impl(std::make_unique<Impl>())
+{
+}
+CLPoolingLayer::~CLPoolingLayer() = default;
 
-    // Configure border depending on operation required (quantize border in case of asymmetric data_type)
-    BorderMode border_mode{};
-    PixelValue pixel_value(0.f);
-    if(is_data_type_quantized_asymmetric(input->info()->data_type()) && !pool_info.exclude_padding())
-    {
-        pixel_value = PixelValue(static_cast<uint32_t>(input->info()->quantization_info().uniform().offset));
-    }
-    switch(input->info()->data_layout())
-    {
-        case DataLayout::NCHW:
-            border_mode = (PoolingType::MAX == pool_info.pool_type()) ? BorderMode::REPLICATE : BorderMode::CONSTANT;
-            break;
-        case DataLayout::NHWC:
-            border_mode = BorderMode::CONSTANT;
-            if(PoolingType::MAX == pool_info.pool_type() && !is_data_type_quantized_asymmetric(input->info()->data_type()))
-            {
-                pixel_value = PixelValue(std::numeric_limits<float>::lowest());
-            }
-            break;
-        default:
-            ARM_COMPUTE_ERROR("Data layout not supported");
-    }
-    _border_handler.configure(input, _kernel->border_size(), border_mode, pixel_value);
-
-    // Tune kernels
-    CLScheduler::get().tune_kernel_static(*_kernel);
+void CLPoolingLayer::configure(ICLTensor *input, ICLTensor *output, const PoolingLayerInfo &pool_info, ICLTensor *indices)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, pool_info, indices);
 }
 
-Status CLPoolingLayer::validate(const ITensorInfo *input, const ITensorInfo *output, const PoolingLayerInfo &pool_info)
+void CLPoolingLayer::configure(const CLCompileContext &compile_context, ICLTensor *input, ICLTensor *output, const PoolingLayerInfo &pool_info, ICLTensor *indices)
 {
-    return CLPoolingLayerKernel::validate(input, output, pool_info);
+    _impl->src     = input;
+    _impl->dst     = output;
+    _impl->indices = indices;
+
+    _impl->op = std::make_unique<opencl::ClPool2d>();
+    _impl->op->configure(compile_context, input->info(), output->info(), pool_info, (indices) ? indices->info() : nullptr);
 }
+
+Status CLPoolingLayer::validate(const ITensorInfo *input, const ITensorInfo *output, const PoolingLayerInfo &pool_info, const ITensorInfo *indices)
+{
+    return opencl::ClPool2d::validate(input, output, pool_info, indices);
+}
+
+void CLPoolingLayer::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC, _impl->src);
+    pack.add_tensor(TensorType::ACL_DST_0, _impl->dst);
+    pack.add_tensor(TensorType::ACL_DST_1, _impl->indices);
+    _impl->op->run(pack);
+}
+} // namespace arm_compute

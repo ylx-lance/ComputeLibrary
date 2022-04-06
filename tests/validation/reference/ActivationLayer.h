@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_ACTIVATION_LAYER_H__
-#define __ARM_COMPUTE_TEST_ACTIVATION_LAYER_H__
+#ifndef ARM_COMPUTE_TEST_ACTIVATION_LAYER_H
+#define ARM_COMPUTE_TEST_ACTIVATION_LAYER_H
 
 #include "tests/SimpleTensor.h"
 #include "tests/validation/Helpers.h"
@@ -66,6 +66,9 @@ inline T activate_float(T x, T a, T b, ActivationLayerInfo::ActivationFunction a
         case ActivationLayerInfo::ActivationFunction::SOFT_RELU:
             ret = std::log(static_cast<T>(1) + std::exp(x));
             break;
+        case ActivationLayerInfo::ActivationFunction::ELU:
+            ret = (x > 0) ? x : a * (std::exp(x) - static_cast<T>(1));
+            break;
         case ActivationLayerInfo::ActivationFunction::SQRT:
             ret = std::sqrt(x);
             break;
@@ -77,6 +80,9 @@ inline T activate_float(T x, T a, T b, ActivationLayerInfo::ActivationFunction a
             break;
         case ActivationLayerInfo::ActivationFunction::IDENTITY:
             ret = x;
+            break;
+        case ActivationLayerInfo::ActivationFunction::HARD_SWISH:
+            ret = x * ((std::min(std::max(static_cast<T>(x + 3), static_cast<T>(0.0f)), static_cast<T>(6.0f))) * 0.166666667f);
             break;
         default:
             ARM_COMPUTE_ERROR("Unsupported activation function");
@@ -92,4 +98,4 @@ SimpleTensor<T> activation_layer(const SimpleTensor<T> &src, ActivationLayerInfo
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_ACTIVATION_LAYER_H__ */
+#endif /* ARM_COMPUTE_TEST_ACTIVATION_LAYER_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,7 +32,7 @@
 #include "tests/framework/Macros.h"
 #include "tests/framework/datasets/Datasets.h"
 #include "tests/validation/Validation.h"
-#include "tests/validation/fixtures/ElementWiseUnaryFixture.h"
+#include "tests/validation/fixtures/ElementwiseUnaryFixture.h"
 
 namespace arm_compute
 {
@@ -50,39 +50,22 @@ RelativeTolerance<float> tolerance_fp16(0.01f);
 TEST_SUITE(NEON)
 TEST_SUITE(NegLayer)
 
-DATA_TEST_CASE(Configuration, framework::DatasetMode::ALL, combine(datasets::SmallShapes(), framework::dataset::make("DataType", DataType::F32)), shape, data_type)
-{
-    // Create tensors
-    Tensor src = create_tensor<Tensor>(shape, data_type);
-    Tensor dst = create_tensor<Tensor>(shape, data_type);
-
-    ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
-
-    // Create and configure function
-    NENegLayer neg_layer;
-    neg_layer.configure(&src, &dst);
-
-    // Validate valid region
-    const ValidRegion valid_region = shape_to_valid_region(shape);
-    validate(src.info()->valid_region(), valid_region);
-    validate(dst.info()->valid_region(), valid_region);
-}
-
 template <typename T>
-using NENegLayerFixture = NegValidationFixture<Tensor, Accessor, NENegLayer, T>;
+using NENegLayerFixture = NegValidationInPlaceFixture<Tensor, Accessor, NENegLayer, T>;
 
 TEST_SUITE(Float)
 #ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
 TEST_SUITE(FP16)
-FIXTURE_DATA_TEST_CASE(RunSmall, NENegLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(datasets::SmallShapes(), framework::dataset::make("DataType",
-                                                                                                     DataType::F16)))
+FIXTURE_DATA_TEST_CASE(RunSmall, NENegLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::SmallShapes(),
+                                                                                                             framework::dataset::make("DataType", DataType::F16)),
+                                                                                                     framework::dataset::make("InPlace", { true, false })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_fp16);
 }
-FIXTURE_DATA_TEST_CASE(RunLarge, NENegLayerFixture<half>, framework::DatasetMode::NIGHTLY, combine(datasets::LargeShapes(), framework::dataset::make("DataType",
-                                                                                                   DataType::F16)))
+FIXTURE_DATA_TEST_CASE(RunLarge, NENegLayerFixture<half>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::LargeShapes(),
+                                                                                                           framework::dataset::make("DataType", DataType::F16)),
+                                                                                                   framework::dataset::make("InPlace", { false })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_fp16);
@@ -92,15 +75,17 @@ TEST_SUITE_END() // FP16
 #endif           // __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
 
 TEST_SUITE(FP32)
-FIXTURE_DATA_TEST_CASE(RunSmall, NENegLayerFixture<float>, framework::DatasetMode::ALL, combine(datasets::SmallShapes(), framework::dataset::make("DataType",
-                                                                                                DataType::F32)))
+FIXTURE_DATA_TEST_CASE(RunSmall, NENegLayerFixture<float>, framework::DatasetMode::ALL, combine(combine(datasets::SmallShapes(),
+                                                                                                        framework::dataset::make("DataType", DataType::F32)),
+                                                                                                framework::dataset::make("InPlace", { true, false })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_fp32);
 }
 
-FIXTURE_DATA_TEST_CASE(RunLarge, NENegLayerFixture<float>, framework::DatasetMode::NIGHTLY, combine(datasets::LargeShapes(), framework::dataset::make("DataType",
-                                                                                                    DataType::F32)))
+FIXTURE_DATA_TEST_CASE(RunLarge, NENegLayerFixture<float>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::LargeShapes(),
+                                                                                                            framework::dataset::make("DataType", DataType::F32)),
+                                                                                                    framework::dataset::make("InPlace", { false })))
 {
     // Validate output
     validate(Accessor(_target), _reference, tolerance_fp32);
@@ -110,15 +95,17 @@ TEST_SUITE_END() // Float
 
 TEST_SUITE(Integer)
 TEST_SUITE(S32)
-FIXTURE_DATA_TEST_CASE(RunSmall, NENegLayerFixture<int32_t>, framework::DatasetMode::ALL, combine(datasets::SmallShapes(), framework::dataset::make("DataType",
-                                                                                                  DataType::S32)))
+FIXTURE_DATA_TEST_CASE(RunSmall, NENegLayerFixture<int32_t>, framework::DatasetMode::ALL, combine(combine(datasets::SmallShapes(),
+                                                                                                          framework::dataset::make("DataType", DataType::S32)),
+                                                                                                  framework::dataset::make("InPlace", { true, false })))
 {
     // Validate output
     validate(Accessor(_target), _reference);
 }
 
-FIXTURE_DATA_TEST_CASE(RunLarge, NENegLayerFixture<int32_t>, framework::DatasetMode::NIGHTLY, combine(datasets::LargeShapes(), framework::dataset::make("DataType",
-                                                                                                      DataType::S32)))
+FIXTURE_DATA_TEST_CASE(RunLarge, NENegLayerFixture<int32_t>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::LargeShapes(),
+                                                                                                              framework::dataset::make("DataType", DataType::S32)),
+                                                                                                      framework::dataset::make("InPlace", { false })))
 {
     // Validate output
     validate(Accessor(_target), _reference);
@@ -127,7 +114,7 @@ TEST_SUITE_END() // S32
 TEST_SUITE_END() // Integer
 
 TEST_SUITE_END() // NegLayer
-TEST_SUITE_END() // NEON
+TEST_SUITE_END() // Neon
 } // namespace validation
 } // namespace test
 } // namespace arm_compute

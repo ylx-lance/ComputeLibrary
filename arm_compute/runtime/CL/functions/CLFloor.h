@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,27 +21,59 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLFLOOR_H__
-#define __ARM_COMPUTE_CLFLOOR_H__
+#ifndef ARM_COMPUTE_CLFLOOR_H
+#define ARM_COMPUTE_CLFLOOR_H
 
-#include "arm_compute/runtime/CL/ICLSimpleFunction.h"
+#include "arm_compute/runtime/IFunction.h"
 
 #include "arm_compute/core/Types.h"
 
+#include <memory>
+
 namespace arm_compute
 {
+class CLCompileContext;
 class ICLTensor;
+class ITensorInfo;
 
-/** Basic function to run @ref CLFloorKernel */
-class CLFloor : public ICLSimpleFunction
+/** Basic function to run @ref opencl::kernels::ClFloorKernel */
+class CLFloor : public IFunction
 {
 public:
+    /** Constructor */
+    CLFloor();
+    /** Destructor */
+    ~CLFloor();
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    CLFloor(const CLFloor &) = delete;
+    /** Default move constructor */
+    CLFloor(CLFloor &&);
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    CLFloor &operator=(const CLFloor &) = delete;
+    /** Default move assignment operator */
+    CLFloor &operator=(CLFloor &&);
     /** Set the source, destination of the kernel
+     *
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src    |dst    |
+     * |:------|:------|
+     * |F32    |F32    |
+     * |F16    |F16    |
      *
      * @param[in]  input  Source tensor. Data type supported: F16/F32.
      * @param[out] output Destination tensor. Same as @p input
      */
     void configure(const ICLTensor *input, ICLTensor *output);
+    /** Set the source, destination of the kernel
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  input           Source tensor. Data type supported: F16/F32.
+     * @param[out] output          Destination tensor. Same as @p input
+     */
+    void configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output);
     /** Static function to check if given info will lead to a valid configuration of @ref CLFloor
      *
      * @param[in] input  Source tensor info. Data type supported: F16/F32.
@@ -50,6 +82,13 @@ public:
      * @return a status
      */
     static Status validate(const ITensorInfo *input, const ITensorInfo *output);
+
+    // Inherited methods overridden:
+    void run() override;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 };
-}
-#endif /* __ARM_COMPUTE_CLFLOOR_H__ */
+} // namespace arm_compute
+#endif /* ARM_COMPUTE_CLFLOOR_H */

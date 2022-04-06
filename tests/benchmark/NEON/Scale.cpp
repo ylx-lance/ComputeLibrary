@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -54,13 +54,8 @@ REGISTER_FIXTURE_DATA_TEST_CASE(RunSmall, NEScaleFixture, framework::DatasetMode
                                                                                                                      interpolation_types),
                                                                                                              datasets::BorderModes()),
                                                                                                      framework::dataset::make("SamplingPolicy", { SamplingPolicy::CENTER })));
-REGISTER_FIXTURE_DATA_TEST_CASE(RunLarge, NEScaleFixture, framework::DatasetMode::NIGHTLY, combine(combine(combine(combine(combine(datasets::LargeImageShapes(), framework::dataset::make("DataType", { DataType::U8, DataType::S16, DataType::F32 })),
-                                                                                                                   framework::dataset::make("DataLayout", { DataLayout::NCHW })),
-                                                                                                                   interpolation_types),
-                                                                                                           datasets::BorderModes()),
-                                                                                                   framework::dataset::make("SamplingPolicy", { SamplingPolicy::CENTER })));
 TEST_SUITE_END() // Scale
-TEST_SUITE_END() // NEON
+TEST_SUITE_END() // Neon
 } // namespace benchmark
 } // namespace test
 } // namespace arm_compute

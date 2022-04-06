@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,23 +21,28 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLHELPERS_H__
-#define __ARM_COMPUTE_CLHELPERS_H__
+#ifndef ARM_COMPUTE_CLHELPERS_H
+#define ARM_COMPUTE_CLHELPERS_H
 
 #include "arm_compute/core/CL/CLTypes.h"
 #include "arm_compute/core/CL/OpenCL.h"
-#include "arm_compute/core/GPUTarget.h"
-#include "arm_compute/core/Helpers.h"
-#include "support/ToolchainSupport.h"
+#include "arm_compute/core/Types.h"
 
+#include <set>
 #include <string>
 
 namespace arm_compute
 {
+class CLCompileContext;
+class CLBuildOptions;
+
 enum class DataType;
 
 /** Max vector width of an OpenCL vector */
 static constexpr unsigned int max_cl_vector_width = 16;
+
+/** Max number of manual loop unrolling */
+static constexpr int max_manual_loop_unrolling = 128;
 
 /** Translates a tensor data type to the appropriate OpenCL type.
  *
@@ -47,6 +52,30 @@ static constexpr unsigned int max_cl_vector_width = 16;
  */
 std::string get_cl_type_from_data_type(const DataType &dt);
 
+/** Translates a tensor data type to the appropriate OpenCL promoted type.
+ *
+ * @param[in] dt @ref DataType to be used to get the promoted OpenCL type.
+ *
+ * @return The string specifying the OpenCL type to be used.
+ */
+std::string get_cl_promoted_type_from_data_type(const DataType &dt);
+
+/** Translates the element size to an unsigned integer data type
+ *
+ * @param[in] element_size Size in bytes of an element.
+ *
+ * @return The string specifying the OpenCL type to be used.
+ */
+std::string get_cl_unsigned_type_from_element_size(size_t element_size);
+
+/** Translates the element size to an signed integer data type
+ *
+ * @param[in] element_size Size in bytes of an element.
+ *
+ * @return The string specifying the OpenCL type to be used.
+ */
+std::string get_cl_signed_type_from_element_size(size_t element_size);
+
 /** Translates a tensor data type to the appropriate OpenCL select type.
  *
  * @param[in] dt @ref DataType to be translated to OpenCL select type.
@@ -55,6 +84,14 @@ std::string get_cl_type_from_data_type(const DataType &dt);
  */
 std::string get_cl_select_type_from_data_type(const DataType &dt);
 
+/** Translates a tensor data type to the appropriate OpenCL dot8 accumulator type.
+ *
+ * @param[in] dt @ref DataType to be translated to OpenCL dot8 accumulator type.
+ *
+ * @return The string specifying the OpenCL dot8 accumulator type to be used.
+ */
+std::string get_cl_dot8_acc_type_from_data_type(const DataType &dt);
+
 /** Get the size of a data type in number of bits.
  *
  * @param[in] dt @ref DataType.
@@ -62,14 +99,6 @@ std::string get_cl_select_type_from_data_type(const DataType &dt);
  * @return Number of bits in the data type specified.
  */
 std::string get_data_size_from_data_type(const DataType &dt);
-
-/** Translates fixed point tensor data type to the underlying OpenCL type.
- *
- * @param[in] dt @ref DataType to be translated to OpenCL type.
- *
- * @return The string specifying the underlying OpenCL type to be used.
- */
-std::string get_underlying_cl_type_from_data_type(const DataType &dt);
 
 /** Helper function to get the GPU target from CL device
  *
@@ -86,6 +115,14 @@ GPUTarget get_target_from_device(const cl::Device &device);
  * @return the highest OpenCL version supported
  */
 CLVersion get_cl_version(const cl::Device &device);
+
+/** Helper function to get the cl_image pitch alignment in pixels
+ *
+ * @param[in] device A CL device
+ *
+ * @return the cl_image pitch alignment in pixels. If an error occurs, the function will return 0
+ */
+size_t get_cl_image_pitch_alignment(const cl::Device &device);
 
 /** Helper function to check whether a given extension is supported
  *
@@ -153,5 +190,67 @@ size_t preferred_vector_width(const cl::Device &device, DataType dt);
  * @return True if dummy work-items should be preferred to dispatch the NDRange
  */
 bool preferred_dummy_work_items_support(const cl::Device &device);
-}
-#endif /* __ARM_COMPUTE_CLHELPERS_H__ */
+
+/** Helper function to check whether the cl_khr_image2d_from_buffer extension is supported
+ *
+ * @param[in] device A CL device
+ *
+ * @return True if the extension is supported
+ */
+bool image2d_from_buffer_supported(const cl::Device &device);
+
+/** Creates an opencl kernel using a compile context
+ *
+ * @param[in] ctx         A compile context to be used to create the opencl kernel.
+ * @param[in] kernel_name The kernel name.
+ * @param[in] build_opts  The build options to be used for the opencl kernel compilation.
+ *
+ * @return An opencl kernel
+ */
+cl::Kernel create_kernel(const CLCompileContext &ctx, const std::string &kernel_name, const std::set<std::string> &build_opts = std::set<std::string>());
+
+/** Creates a suitable LWS hint object for parallel implementations. Sets the number of WG based on the input size.
+ *  If input width is smaller than 128 we can use fewer threads than 8.
+ *
+ * @param[in] input_dimension number of elements along the dimension to apply the parallellization
+ * @param[in] vector_size     size of the vector in OpenCL
+ *
+ * @return An LWS hint object
+ */
+cl::NDRange create_lws_hint_parallel_implementations(unsigned int input_dimension, unsigned int vector_size);
+
+/* Helper function to check if the workgroup batch size modifier parameter is supported on the cl device
+ *
+ * @param[in] device cl device to check for support
+ *
+ * @return true if the workgroup batch size modifier parameter is supported, false otherwise
+ */
+bool get_wbsm_support_info(const cl::Device &device);
+
+/* Helper function to set the workgroup batch size modifier parameter in the kernel
+ *
+ * @param[in] kernel    cl kernel to set the workgroup batch size modifier parameter
+ * @param[in] wbsm_hint workgroup batch size modifier to use
+ */
+void set_wbsm(cl::Kernel &kernel, cl_int wbsm_hint);
+
+/* Helper function to check if we can export the weights to cl_image
+ *
+ * @param[in] tensor Weights tensor
+ *
+ * @return true if we can export the weights to cl_image
+ */
+bool export_weights_to_cl_image(const ITensorInfo *tensor);
+
+/* Helper function to force unroll with pragma when any of the input values (iterations) are greater than @ref max_manual_loop_unrolling
+ *
+ * This function passes UNROLL_WITH_PRAGMA at compile time when any of the input values are greater than @ref max_manual_loop_unrolling
+ *
+ * @param[in] built_opts OpenCL kernel build options
+ * @param[in] values     Input values (iterations)
+ *
+ */
+void set_unroll_with_pragma(CLBuildOptions &built_opts, std::initializer_list<int> values);
+
+} // namespace arm_compute
+#endif /* ARM_COMPUTE_CLHELPERS_H */

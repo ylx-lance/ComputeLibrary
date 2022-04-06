@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,55 +21,77 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NEDEPTHCONVERT_H__
-#define __ARM_COMPUTE_NEDEPTHCONVERT_H__
+#ifndef ARM_COMPUTE_NEDEPTHCONVERT_H
+#define ARM_COMPUTE_NEDEPTHCONVERT_H
+
+#include "arm_compute/runtime/IFunction.h"
 
 #include "arm_compute/core/Types.h"
-#include "arm_compute/runtime/NEON/INESimpleFunctionNoBorder.h"
 
-#include <cstdint>
+#include <memory>
 
 namespace arm_compute
 {
 class ITensor;
+class ITensorInfo;
 
-/**Basic function to run @ref NEDepthConvertLayerKernel */
-class NEDepthConvertLayer : public INESimpleFunctionNoBorder
+/**Basic function to run @ref cpu::kernels::CpuCastKernel */
+class NEDepthConvertLayer : public IFunction
 {
 public:
-    /* Contructor */
-    NEDepthConvertLayer() = default;
-    /** Prevent instances of this class from being copied (As this class contains pointers)*/
+    /** Constructor */
+    NEDepthConvertLayer();
+    /** Destructor */
+    ~NEDepthConvertLayer();
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEDepthConvertLayer(const NEDepthConvertLayer &) = delete;
-    /** Prevent instances of this class from being copied (As this class contains pointers)*/
-    const NEDepthConvertLayer &operator=(const NEDepthConvertLayer &) = delete;
+    /** Default move constructor */
+    NEDepthConvertLayer(NEDepthConvertLayer &&);
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEDepthConvertLayer &operator=(const NEDepthConvertLayer &) = delete;
+    /** Default move assignment operator */
+    NEDepthConvertLayer &operator=(NEDepthConvertLayer &&);
     /** Initialize the function's source, destination
      *
-     * Valid conversions Input -> Output :
+     * Valid data layouts:
+     * - All
      *
-     *   - QASYMM8 -> F16, F32
-     *   - U8 -> U16, S16, S32
-     *   - U16 -> U8, U32
-     *   - S16 -> U8, S32
-     *   - F16 -> QASYMM8, F32
-     *   - F32 -> QASYMM8, F16
+     * Valid data type configurations:
+     * |src            |dst                        |
+     * |:--------------|:--------------------------|
+     * |QASYMM8        | F16, F32                  |
+     * |U8             | U16, S16, S32             |
+     * |U16            | U8, U32                   |
+     * |S16            | U8, S32                   |
+     * |BFLOAT16       | F32                       |
+     * |F16            | QASYMM8, F32              |
+     * |F32            | QASYMM8, F16, BFLOAT16    |
      *
-     * @param[in]  input  The input tensor to convert. Data types supported: QASYMM8/U8/U16/S16/F16/F32.
-     * @param[out] output The output tensor. Data types supported: QASYMM8/U8/U16/S16/U32/S32/F16/F32.
+     * Input data type must be different than output data type.
+     *
+     * @param[in]  input  The input tensor to convert. Data types supported: QASYMM8/U8/U16/S16/BFLOAT16/F16/F32.
+     * @param[out] output The output tensor. Data types supported: QASYMM8/U8/U16/S16/U32/S32/BFLOAT16/F16/F32.
      * @param[in]  policy Conversion policy.
      * @param[in]  shift  (Optional) Value for down/up conversions. Must be 0 <= shift < 8.
      */
     void configure(const ITensor *input, ITensor *output, ConvertPolicy policy, uint32_t shift = 0);
     /** Static function to check if given info will lead to a valid configuration of @ref NEDepthConvertLayer
      *
-     * @param[in] input  Source tensor info. Data types supported: QASYMM8/U8/U16/S16/F16/F32.
-     * @param[in] output Destination tensor info. Data type supported: QASYMM8/U8/U16/S16/U32/S32/F16/F32.
+     * @param[in] input  Source tensor info. Data types supported: QASYMM8/U8/U16/S16/BFLOAT16/F16/F32.
+     * @param[in] output Destination tensor info. Data type supported: QASYMM8/U8/U16/S16/U32/S32/BFLOAT16/F16/F32.
      * @param[in] policy Conversion policy.
      * @param[in] shift  (Optional) Value for down/up conversions. Must be 0 <= shift < 8.
      *
      * @return a status
      */
     static Status validate(const ITensorInfo *input, const ITensorInfo *output, ConvertPolicy policy, uint32_t shift = 0);
+
+    // Inherited methods overridden
+    void run() override;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_NEDEPTHCONVERT_H__*/
+#endif /*ARM_COMPUTE_NEDEPTHCONVERT_H*/

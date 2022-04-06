@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TENSORINFO_H__
-#define __ARM_COMPUTE_TENSORINFO_H__
+#ifndef ARM_COMPUTE_TENSORINFO_H
+#define ARM_COMPUTE_TENSORINFO_H
 
 #include "arm_compute/core/ITensorInfo.h"
 
@@ -39,8 +39,6 @@
 
 namespace arm_compute
 {
-class HOGInfo;
-
 /** Store the tensor's metadata */
 class TensorInfo final : public ITensorInfo
 {
@@ -101,20 +99,21 @@ public:
 
     /** Constructor
      *
+     * @param[in] tensor_shape It specifies the size for each dimension of the tensor in number of elements.
+     * @param[in] num_channels It indicates the number of channels for each tensor element
+     * @param[in] data_type    Data type to use for each tensor element
+     * @param[in] data_layout  The data layout setting for the tensor data.
+     */
+    TensorInfo(const TensorShape &tensor_shape, size_t num_channels, DataType data_type, DataLayout data_layout);
+
+    /** Constructor
+     *
      * @param[in] tensor_shape      It specifies the size for each dimension of the tensor in number of elements.
      * @param[in] num_channels      It indicates the number of channels for each tensor element
      * @param[in] data_type         Data type to use for each tensor element
      * @param[in] quantization_info The quantization settings for the tensor data.
      */
     TensorInfo(const TensorShape &tensor_shape, size_t num_channels, DataType data_type, QuantizationInfo quantization_info);
-
-    /** Constructor
-     *
-     * @param[in] hog_info HOG's metadata used to allocate normalized HOG space
-     * @param[in] width    Width of the 2D tensor where the HOG descriptor will be computed on
-     * @param[in] height   Height of the 2D tensor where the HOG descriptor will be computed on
-     */
-    TensorInfo(const HOGInfo &hog_info, unsigned int width, unsigned int height);
 
     /** Initialize the tensor info with just a format.
      *
@@ -168,13 +167,6 @@ public:
      */
     void init(const TensorShape &tensor_shape, size_t num_channels, DataType data_type, const Strides &strides_in_bytes, size_t offset_first_element_in_bytes,
               size_t total_size_in_bytes);
-    /** Initialize the metadata structure for the given HOG's metadata
-     *
-     * @param[in] hog_info HOG's metadata used to allocate normalized HOG space
-     * @param[in] width    Width of the 2D tensor where the HOG descriptor will be computed on
-     * @param[in] height   Height of the 2D tensor where the HOG descriptor will be computed on
-     */
-    void init(const HOGInfo &hog_info, unsigned int width, unsigned int height);
     /** Initialize the metadata structure for the given tensor shape and single-plane format, (Padding is automatically calculated)
      *
      * @note The padding used by this method is really conservative so that the tensor can be used for most functions.
@@ -197,17 +189,6 @@ public:
      * @return Total allocation size including padding in bytes.
      */
     size_t init_auto_padding(const TensorShape &tensor_shape, size_t num_channels, DataType data_type);
-    /** Initialize the metadata structure for the given HOG's metadata
-     *
-     * @note init_auto_padding will be used for the tensor initialization.
-     *
-     * @param[in] hog_info HOG's metadata used to allocate normalized HOG space
-     * @param[in] width    Width of the 2D tensor where the HOG descriptor will be computed on
-     * @param[in] height   Height of the 2D tensor where the HOG descriptor will be computed on
-     *
-     * @return Total allocation size including padding in bytes.
-     */
-    size_t init_auto_padding(const HOGInfo &hog_info, unsigned int width, unsigned int height);
 
     // Inherited methods overridden:
     std::unique_ptr<ITensorInfo> clone() const override;
@@ -215,6 +196,7 @@ public:
     ITensorInfo &set_num_channels(int num_channels) override;
     ITensorInfo &set_format(Format format) override;
     ITensorInfo &set_tensor_shape(const TensorShape &shape) override;
+    ITensorInfo &set_tensor_dims_state(const TensorDimsState &state) override;
     ITensorInfo &set_quantization_info(const QuantizationInfo &quantization_info) override;
     ITensorInfo &set_data_layout(const DataLayout &data_layout) override;
     ITensorInfo &reset_padding() override;
@@ -236,7 +218,7 @@ public:
     {
         return _offset_first_element_in_bytes;
     }
-    size_t offset_element_in_bytes(const Coordinates &pos) const override;
+    int32_t offset_element_in_bytes(const Coordinates &pos) const override;
     size_t element_size() const override
     {
         return data_size_from_type(_data_type) * _num_channels;
@@ -252,6 +234,10 @@ public:
     const TensorShape &tensor_shape() const override
     {
         return _tensor_shape;
+    }
+    const TensorDimsState &tensor_dims_state() const override
+    {
+        return _dims_state;
     }
     DataType data_type() const override
     {
@@ -277,6 +263,14 @@ public:
     {
         return _is_resizable;
     }
+    bool is_dynamic() const override
+    {
+        return std::find(std::cbegin(_dims_state), std::cend(_dims_state), get_dynamic_state_value()) != std::cend(_dims_state);
+    }
+    bool are_values_constant() const override
+    {
+        return _are_values_constant;
+    }
     ITensorInfo &set_is_resizable(bool is_resizable) override
     {
         _is_resizable = is_resizable;
@@ -298,6 +292,11 @@ public:
     {
         return _data_layout;
     }
+    ITensorInfo &set_are_values_constant(bool are_values_constant) override
+    {
+        _are_values_constant = are_values_constant;
+        return *this;
+    }
 
 private:
     /** Calculates strides, offset and total size resulting from the specified padding around the XY plane.
@@ -311,6 +310,7 @@ private:
     Strides          _strides_in_bytes;
     size_t           _num_channels;
     TensorShape      _tensor_shape;
+    TensorDimsState  _dims_state;
     DataType         _data_type;
     Format           _format;
     bool             _is_resizable;
@@ -318,6 +318,7 @@ private:
     PaddingSize      _padding;
     QuantizationInfo _quantization_info;
     DataLayout       _data_layout;
+    bool             _are_values_constant;
 };
-}
-#endif /*__ARM_COMPUTE_TENSORINFO_H__ */
+} // namespace arm_compute
+#endif /*ARM_COMPUTE_TENSORINFO_H */

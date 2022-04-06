@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2022 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,13 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_UTILS_H__
-#define __ARM_COMPUTE_UTILS_H__
+#ifndef ARM_COMPUTE_UTILS_H
+#define ARM_COMPUTE_UTILS_H
 
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/PixelValue.h"
 #include "arm_compute/core/Rounding.h"
 #include "arm_compute/core/Types.h"
+#include "arm_compute/core/Version.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -37,11 +38,15 @@
 #include <sstream>
 #include <string>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 namespace arm_compute
 {
+class ITensor;
+class ITensorInfo;
+
 /** Calculate the rounded up quotient of val / m.
  *
  * @param[in] val Value to divide and round up.
@@ -83,14 +88,6 @@ inline auto floor_to_multiple(S value, T divisor) -> decltype((value / divisor) 
     return (value / divisor) * divisor;
 }
 
-/** Returns the arm_compute library build information
- *
- * Contains the version number and the build options used to build the library
- *
- * @return The arm_compute library build information
- */
-std::string build_information();
-
 /** Load an entire file in memory
  *
  * @param[in] filename Name of the file to read.
@@ -114,11 +111,14 @@ inline size_t data_size_from_type(DataType data_type)
         case DataType::S8:
         case DataType::QSYMM8:
         case DataType::QASYMM8:
+        case DataType::QASYMM8_SIGNED:
         case DataType::QSYMM8_PER_CHANNEL:
             return 1;
         case DataType::U16:
         case DataType::S16:
         case DataType::QSYMM16:
+        case DataType::QASYMM16:
+        case DataType::BFLOAT16:
         case DataType::F16:
             return 2;
         case DataType::F32:
@@ -151,6 +151,7 @@ inline size_t pixel_size_from_format(Format format)
             return 1;
         case Format::U16:
         case Format::S16:
+        case Format::BFLOAT16:
         case Format::F16:
         case Format::UV88:
         case Format::YUYV422:
@@ -189,11 +190,14 @@ inline size_t element_size_from_data_type(DataType dt)
         case DataType::U8:
         case DataType::QSYMM8:
         case DataType::QASYMM8:
+        case DataType::QASYMM8_SIGNED:
         case DataType::QSYMM8_PER_CHANNEL:
             return 1;
         case DataType::U16:
         case DataType::S16:
         case DataType::QSYMM16:
+        case DataType::QASYMM16:
+        case DataType::BFLOAT16:
         case DataType::F16:
             return 2;
         case DataType::U32:
@@ -231,6 +235,8 @@ inline DataType data_type_from_format(Format format)
             return DataType::U32;
         case Format::S32:
             return DataType::S32;
+        case Format::BFLOAT16:
+            return DataType::BFLOAT16;
         case Format::F16:
             return DataType::F16;
         case Format::F32:
@@ -263,6 +269,7 @@ inline int plane_idx_from_channel(Format format, Channel channel)
         case Format::S16:
         case Format::U32:
         case Format::S32:
+        case Format::BFLOAT16:
         case Format::F16:
         case Format::F32:
         case Format::UV88:
@@ -450,6 +457,7 @@ inline size_t num_planes_from_format(Format format)
         case Format::U16:
         case Format::S32:
         case Format::U32:
+        case Format::BFLOAT16:
         case Format::F16:
         case Format::F32:
         case Format::RGB888:
@@ -484,6 +492,7 @@ inline size_t num_channels_from_format(Format format)
         case Format::S16:
         case Format::U32:
         case Format::S32:
+        case Format::BFLOAT16:
         case Format::F16:
         case Format::F32:
             return 1;
@@ -530,8 +539,11 @@ inline DataType get_promoted_data_type(DataType dt)
             return DataType::S32;
         case DataType::QSYMM8:
         case DataType::QASYMM8:
+        case DataType::QASYMM8_SIGNED:
         case DataType::QSYMM8_PER_CHANNEL:
         case DataType::QSYMM16:
+        case DataType::QASYMM16:
+        case DataType::BFLOAT16:
         case DataType::F16:
         case DataType::U32:
         case DataType::S32:
@@ -541,6 +553,84 @@ inline DataType get_promoted_data_type(DataType dt)
             ARM_COMPUTE_ERROR("Undefined data type!");
     }
     return DataType::UNKNOWN;
+}
+
+/** Compute the mininum and maximum values a data type can take
+ *
+ * @param[in] dt Data type to get the min/max bounds of
+ *
+ * @return A tuple (min,max) with the minimum and maximum values respectively wrapped in PixelValue.
+ */
+inline std::tuple<PixelValue, PixelValue> get_min_max(DataType dt)
+{
+    PixelValue min{};
+    PixelValue max{};
+    switch(dt)
+    {
+        case DataType::U8:
+        case DataType::QASYMM8:
+        {
+            min = PixelValue(static_cast<int32_t>(std::numeric_limits<uint8_t>::lowest()));
+            max = PixelValue(static_cast<int32_t>(std::numeric_limits<uint8_t>::max()));
+            break;
+        }
+        case DataType::S8:
+        case DataType::QSYMM8:
+        case DataType::QASYMM8_SIGNED:
+        case DataType::QSYMM8_PER_CHANNEL:
+        {
+            min = PixelValue(static_cast<int32_t>(std::numeric_limits<int8_t>::lowest()));
+            max = PixelValue(static_cast<int32_t>(std::numeric_limits<int8_t>::max()));
+            break;
+        }
+        case DataType::U16:
+        case DataType::QASYMM16:
+        {
+            min = PixelValue(static_cast<int32_t>(std::numeric_limits<uint16_t>::lowest()));
+            max = PixelValue(static_cast<int32_t>(std::numeric_limits<uint16_t>::max()));
+            break;
+        }
+        case DataType::S16:
+        case DataType::QSYMM16:
+        {
+            min = PixelValue(static_cast<int32_t>(std::numeric_limits<int16_t>::lowest()));
+            max = PixelValue(static_cast<int32_t>(std::numeric_limits<int16_t>::max()));
+            break;
+        }
+        case DataType::U32:
+        {
+            min = PixelValue(std::numeric_limits<uint32_t>::lowest());
+            max = PixelValue(std::numeric_limits<uint32_t>::max());
+            break;
+        }
+        case DataType::S32:
+        {
+            min = PixelValue(std::numeric_limits<int32_t>::lowest());
+            max = PixelValue(std::numeric_limits<int32_t>::max());
+            break;
+        }
+        case DataType::BFLOAT16:
+        {
+            min = PixelValue(bfloat16::lowest());
+            max = PixelValue(bfloat16::max());
+            break;
+        }
+        case DataType::F16:
+        {
+            min = PixelValue(std::numeric_limits<half>::lowest());
+            max = PixelValue(std::numeric_limits<half>::max());
+            break;
+        }
+        case DataType::F32:
+        {
+            min = PixelValue(std::numeric_limits<float>::lowest());
+            max = PixelValue(std::numeric_limits<float>::max());
+            break;
+        }
+        default:
+            ARM_COMPUTE_ERROR("Undefined data type!");
+    }
+    return std::make_tuple(min, max);
 }
 
 /** Return true if the given format has horizontal subsampling.
@@ -565,82 +655,6 @@ inline bool has_format_vertical_subsampling(Format format)
     return (format == Format::NV12 || format == Format::NV21 || format == Format::IYUV || format == Format::UV88) ? true : false;
 }
 
-/** Separate a 2D convolution into two 1D convolutions
- *
- * @param[in]  conv     2D convolution
- * @param[out] conv_col 1D vertical convolution
- * @param[out] conv_row 1D horizontal convolution
- * @param[in]  size     Size of the 2D convolution
- *
- * @return true if the separation was successful
- */
-inline bool separate_matrix(const int16_t *conv, int16_t *conv_col, int16_t *conv_row, uint8_t size)
-{
-    int32_t min_col     = -1;
-    int16_t min_col_val = -1;
-
-    for(int32_t i = 0; i < size; ++i)
-    {
-        if(conv[i] != 0 && (min_col < 0 || abs(min_col_val) > abs(conv[i])))
-        {
-            min_col     = i;
-            min_col_val = conv[i];
-        }
-    }
-
-    if(min_col < 0)
-    {
-        return false;
-    }
-
-    for(uint32_t j = 0; j < size; ++j)
-    {
-        conv_col[j] = conv[min_col + j * size];
-    }
-
-    for(uint32_t i = 0; i < size; i++)
-    {
-        if(static_cast<int>(i) == min_col)
-        {
-            conv_row[i] = 1;
-        }
-        else
-        {
-            int16_t coeff = conv[i] / conv[min_col];
-
-            for(uint32_t j = 1; j < size; ++j)
-            {
-                if(conv[i + j * size] != (conv_col[j] * coeff))
-                {
-                    return false;
-                }
-            }
-
-            conv_row[i] = coeff;
-        }
-    }
-
-    return true;
-}
-
-/** Calculate the scale of the given square matrix
- *
- * The scale is the absolute value of the sum of all the coefficients in the matrix.
- *
- * @note If the coefficients add up to 0 then the scale is set to 1.
- *
- * @param[in] matrix      Matrix coefficients
- * @param[in] matrix_size Number of elements per side of the square matrix. (Number of coefficients = matrix_size * matrix_size).
- *
- * @return The absolute value of the sum of the coefficients if they don't add up to 0, otherwise 1.
- */
-inline uint32_t calculate_matrix_scale(const int16_t *matrix, unsigned int matrix_size)
-{
-    const size_t size = matrix_size * matrix_size;
-
-    return std::max(1, std::abs(std::accumulate(matrix, matrix + size, 0)));
-}
-
 /** Adjust tensor shape size if width or height are odd for a given multi-planar format. No modification is done for other formats.
  *
  * @note Adding here a few links discussing the issue of odd size and sharing the same solution:
@@ -661,13 +675,13 @@ inline TensorShape adjust_odd_shape(const TensorShape &shape, Format format)
     // Force width to be even for formats which require subsampling of the U and V channels
     if(has_format_horizontal_subsampling(format))
     {
-        output.set(0, output.x() & ~1U);
+        output.set(0, (output.x() + 1) & ~1U);
     }
 
     // Force height to be even for formats which require subsampling of the U and V channels
     if(has_format_vertical_subsampling(format))
     {
-        output.set(1, output.y() & ~1U);
+        output.set(1, (output.y() + 1) & ~1U);
     }
 
     return output;
@@ -704,117 +718,6 @@ inline TensorShape calculate_subsampled_shape(const TensorShape &shape, Format f
     return output;
 }
 
-/** Calculate accurary required by the horizontal and vertical convolution computations
- *
- * @param[in] conv_col Pointer to the vertical vector of the separated convolution filter
- * @param[in] conv_row Pointer to the horizontal vector of the convolution filter
- * @param[in] size     Number of elements per vector of the separated matrix
- *
- * @return The return type is a pair. The first element of the pair is the biggest data type needed for the first stage. The second
- * element of the pair is the biggest data type needed for the second stage.
- */
-inline std::pair<DataType, DataType> data_type_for_convolution(const int16_t *conv_col, const int16_t *conv_row, size_t size)
-{
-    DataType first_stage  = DataType::UNKNOWN;
-    DataType second_stage = DataType::UNKNOWN;
-
-    auto gez = [](const int16_t &v)
-    {
-        return v >= 0;
-    };
-
-    auto accu_neg = [](const int &first, const int &second)
-    {
-        return first + (second < 0 ? second : 0);
-    };
-
-    auto accu_pos = [](const int &first, const int &second)
-    {
-        return first + (second > 0 ? second : 0);
-    };
-
-    const bool only_positive_coefficients = std::all_of(conv_row, conv_row + size, gez) && std::all_of(conv_col, conv_col + size, gez);
-
-    if(only_positive_coefficients)
-    {
-        const int max_row_value = std::accumulate(conv_row, conv_row + size, 0) * UINT8_MAX;
-        const int max_value     = std::accumulate(conv_col, conv_col + size, 0) * max_row_value;
-
-        first_stage = (max_row_value <= UINT16_MAX) ? DataType::U16 : DataType::S32;
-
-        second_stage = (max_value <= UINT16_MAX) ? DataType::U16 : DataType::S32;
-    }
-    else
-    {
-        const int min_row_value  = std::accumulate(conv_row, conv_row + size, 0, accu_neg) * UINT8_MAX;
-        const int max_row_value  = std::accumulate(conv_row, conv_row + size, 0, accu_pos) * UINT8_MAX;
-        const int neg_coeffs_sum = std::accumulate(conv_col, conv_col + size, 0, accu_neg);
-        const int pos_coeffs_sum = std::accumulate(conv_col, conv_col + size, 0, accu_pos);
-        const int min_value      = neg_coeffs_sum * max_row_value + pos_coeffs_sum * min_row_value;
-        const int max_value      = neg_coeffs_sum * min_row_value + pos_coeffs_sum * max_row_value;
-
-        first_stage = ((INT16_MIN <= min_row_value) && (max_row_value <= INT16_MAX)) ? DataType::S16 : DataType::S32;
-
-        second_stage = ((INT16_MIN <= min_value) && (max_value <= INT16_MAX)) ? DataType::S16 : DataType::S32;
-    }
-
-    return std::make_pair(first_stage, second_stage);
-}
-
-/** Calculate the accuracy required by the squared convolution calculation.
- *
- *
- * @param[in] conv Pointer to the squared convolution matrix
- * @param[in] size The total size of the convolution matrix
- *
- * @return The return is the biggest data type needed to do the convolution
- */
-inline DataType data_type_for_convolution_matrix(const int16_t *conv, size_t size)
-{
-    auto gez = [](const int16_t v)
-    {
-        return v >= 0;
-    };
-
-    const bool only_positive_coefficients = std::all_of(conv, conv + size, gez);
-
-    if(only_positive_coefficients)
-    {
-        const int max_conv_value = std::accumulate(conv, conv + size, 0) * UINT8_MAX;
-        if(max_conv_value <= UINT16_MAX)
-        {
-            return DataType::U16;
-        }
-        else
-        {
-            return DataType::S32;
-        }
-    }
-    else
-    {
-        const int min_value = std::accumulate(conv, conv + size, 0, [](int a, int b)
-        {
-            return b < 0 ? a + b : a;
-        })
-        * UINT8_MAX;
-
-        const int max_value = std::accumulate(conv, conv + size, 0, [](int a, int b)
-        {
-            return b > 0 ? a + b : a;
-        })
-        * UINT8_MAX;
-
-        if((INT16_MIN <= min_value) && (INT16_MAX >= max_value))
-        {
-            return DataType::S16;
-        }
-        else
-        {
-            return DataType::S32;
-        }
-    }
-}
-
 /** Permutes the given dimensions according the permutation vector
  *
  * @param[in,out] dimensions Dimensions to be permuted.
@@ -848,21 +751,17 @@ PadStrideInfo calculate_same_pad(TensorShape input_shape, TensorShape weights_sh
 
 /** Returns expected width and height of the deconvolution's output tensor.
  *
- * @param[in] in_width      Width of input tensor (Number of columns)
- * @param[in] in_height     Height of input tensor (Number of rows)
- * @param[in] kernel_width  Kernel width.
- * @param[in] kernel_height Kernel height.
- * @param[in] padx          X axis padding.
- * @param[in] pady          Y axis padding.
- * @param[in] stride_x      X axis input stride.
- * @param[in] stride_y      Y axis input stride.
+ * @param[in] in_width        Width of input tensor (Number of columns)
+ * @param[in] in_height       Height of input tensor (Number of rows)
+ * @param[in] kernel_width    Kernel width.
+ * @param[in] kernel_height   Kernel height.
+ * @param[in] pad_stride_info Pad and stride information.
  *
  * @return A pair with the new width in the first position and the new height in the second.
  */
 std::pair<unsigned int, unsigned int> deconvolution_output_dimensions(unsigned int in_width, unsigned int in_height,
                                                                       unsigned int kernel_width, unsigned int kernel_height,
-                                                                      unsigned int padx, unsigned int pady,
-                                                                      unsigned int stride_x, unsigned int stride_y);
+                                                                      const PadStrideInfo &pad_stride_info);
 
 /** Returns expected width and height of output scaled tensor depending on dimensions rounding mode.
  *
@@ -875,10 +774,53 @@ std::pair<unsigned int, unsigned int> deconvolution_output_dimensions(unsigned i
  *
  * @return A pair with the new width in the first position and the new height in the second.
  */
-std::pair<unsigned int, unsigned int> scaled_dimensions(unsigned int width, unsigned int height,
-                                                        unsigned int kernel_width, unsigned int kernel_height,
+std::pair<unsigned int, unsigned int> scaled_dimensions(int width, int height,
+                                                        int kernel_width, int kernel_height,
                                                         const PadStrideInfo &pad_stride_info,
                                                         const Size2D        &dilation = Size2D(1U, 1U));
+
+/** Returns calculated width and height of output scaled tensor depending on dimensions rounding mode.
+ *
+ * @param[in] width           Width of input tensor (Number of columns)
+ * @param[in] height          Height of input tensor (Number of rows)
+ * @param[in] kernel_width    Kernel width.
+ * @param[in] kernel_height   Kernel height.
+ * @param[in] pad_stride_info Pad and stride information.
+ *
+ * @return A pair with the new width in the first position and the new height in the second, returned values can be < 1
+ */
+std::pair<int, int> scaled_dimensions_signed(int width, int height,
+                                             int kernel_width, int kernel_height,
+                                             const PadStrideInfo &pad_stride_info);
+
+/** Check if the given reduction operation should be handled in a serial way.
+ *
+ * @param[in] op   Reduction operation to perform
+ * @param[in] dt   Data type
+ * @param[in] axis Axis along which to reduce
+ *
+ * @return True if the given reduction operation should be handled in a serial way.
+ */
+bool needs_serialized_reduction(ReductionOperation op, DataType dt, unsigned int axis);
+
+/** Returns output quantization information for softmax layer
+ *
+ * @param[in] input_type The data type of the input tensor
+ * @param[in] is_log     True for log softmax
+ *
+ * @return Quantization information for the output tensor
+ */
+QuantizationInfo get_softmax_output_quantization_info(DataType input_type, bool is_log);
+
+/** Returns a pair of minimum and maximum values for a quantized activation
+ *
+ * @param[in] act_info  The information for activation
+ * @param[in] data_type The used data type
+ * @param[in] oq_info   The output quantization information
+ *
+ * @return The pair with minimum and maximum values
+ */
+std::pair<int32_t, int32_t> get_quantized_activation_min_max(ActivationLayerInfo act_info, DataType data_type, UniformQuantizationInfo oq_info);
 
 /** Convert a tensor format into a string.
  *
@@ -909,13 +851,6 @@ const std::string &string_from_data_layout(DataLayout dl);
  * @return The string describing the data type.
  */
 const std::string &string_from_data_type(DataType dt);
-/** Convert a matrix pattern into a string.
- *
- * @param[in] pattern @ref MatrixPattern to be translated to string.
- *
- * @return The string describing the matrix pattern.
- */
-const std::string &string_from_matrix_pattern(MatrixPattern pattern);
 /** Translates a given activation function to a string.
  *
  * @param[in] act @ref ActivationLayerInfo::ActivationFunction to be translated to string.
@@ -923,13 +858,6 @@ const std::string &string_from_matrix_pattern(MatrixPattern pattern);
  * @return The string describing the activation function.
  */
 const std::string &string_from_activation_func(ActivationLayerInfo::ActivationFunction act);
-/** Translates a given non linear function to a string.
- *
- * @param[in] function @ref NonLinearFilterFunction to be translated to string.
- *
- * @return The string describing the non linear function.
- */
-const std::string &string_from_non_linear_filter_function(NonLinearFilterFunction function);
 /** Translates a given interpolation policy to a string.
  *
  * @param[in] policy @ref InterpolationPolicy to be translated to string.
@@ -958,6 +886,13 @@ const std::string &string_from_norm_type(NormType type);
  * @return The string describing the pooling type.
  */
 const std::string &string_from_pooling_type(PoolingType type);
+/** Check if the pool region is entirely outside the input tensor
+ *
+ * @param[in] info @ref PoolingLayerInfo to be checked.
+ *
+ * @return True if the pool region is entirely outside the input tensor, False otherwise.
+ */
+bool is_pool_region_entirely_outside_input(const PoolingLayerInfo &info);
 /** Translates a given GEMMLowp output stage to a string.
  *
  * @param[in] output_stage @ref GEMMLowpOutputStageInfo to be translated to string.
@@ -973,6 +908,49 @@ const std::string &string_from_gemmlowp_output_stage(GEMMLowpOutputStageType out
  * @return String representation of the PixelValue through the given data type.
  */
 std::string string_from_pixel_value(const PixelValue &value, const DataType data_type);
+/** Convert a string to DataType
+ *
+ * @param[in] name The name of the data type
+ *
+ * @return DataType
+ */
+DataType data_type_from_name(const std::string &name);
+/** Stores padding information before configuring a kernel
+ *
+ * @param[in] infos list of tensor infos to store the padding info for
+ *
+ * @return An unordered map where each tensor info pointer is paired with its original padding info
+ */
+std::unordered_map<const ITensorInfo *, PaddingSize> get_padding_info(std::initializer_list<const ITensorInfo *> infos);
+/** Stores padding information before configuring a kernel
+ *
+ * @param[in] tensors list of tensors to store the padding info for
+ *
+ * @return An unordered map where each tensor info pointer is paired with its original padding info
+ */
+std::unordered_map<const ITensorInfo *, PaddingSize> get_padding_info(std::initializer_list<const ITensor *> tensors);
+/** Check if the previously stored padding info has changed after configuring a kernel
+ *
+ * @param[in] padding_map an unordered map where each tensor info pointer is paired with its original padding info
+ *
+ * @return true if any of the tensor infos has changed its paddings
+ */
+bool has_padding_changed(const std::unordered_map<const ITensorInfo *, PaddingSize> &padding_map);
+
+/** Input Stream operator for @ref DataType
+ *
+ * @param[in]  stream    Stream to parse
+ * @param[out] data_type Output data type
+ *
+ * @return Updated stream
+ */
+inline ::std::istream &operator>>(::std::istream &stream, DataType &data_type)
+{
+    std::string value;
+    stream >> value;
+    data_type = data_type_from_name(value);
+    return stream;
+}
 /** Lower a given string.
  *
  * @param[in] val Given string to lower.
@@ -980,6 +958,14 @@ std::string string_from_pixel_value(const PixelValue &value, const DataType data
  * @return The lowered string
  */
 std::string lower_string(const std::string &val);
+
+/** Raise a given string to upper case
+ *
+ * @param[in] val Given string to lower.
+ *
+ * @return The upper case string
+ */
+std::string upper_string(const std::string &val);
 
 /** Check if a given data type is of floating point type
  *
@@ -1013,8 +999,10 @@ inline bool is_data_type_quantized(DataType dt)
     {
         case DataType::QSYMM8:
         case DataType::QASYMM8:
+        case DataType::QASYMM8_SIGNED:
         case DataType::QSYMM8_PER_CHANNEL:
         case DataType::QSYMM16:
+        case DataType::QASYMM16:
             return true;
         default:
             return false;
@@ -1032,6 +1020,25 @@ inline bool is_data_type_quantized_asymmetric(DataType dt)
     switch(dt)
     {
         case DataType::QASYMM8:
+        case DataType::QASYMM8_SIGNED:
+        case DataType::QASYMM16:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/** Check if a given data type is of asymmetric quantized signed type
+ *
+ * @param[in] dt Input data type.
+ *
+ * @return True if data type is of asymmetric quantized signed type, else false.
+ */
+inline bool is_data_type_quantized_asymmetric_signed(DataType dt)
+{
+    switch(dt)
+    {
+        case DataType::QASYMM8_SIGNED:
             return true;
         default:
             return false;
@@ -1051,6 +1058,23 @@ inline bool is_data_type_quantized_symmetric(DataType dt)
         case DataType::QSYMM8:
         case DataType::QSYMM8_PER_CHANNEL:
         case DataType::QSYMM16:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/** Check if a given data type is of per channel type
+ *
+ * @param[in] dt Input data type.
+ *
+ * @return True if data type is of per channel type, else false.
+ */
+inline bool is_data_type_quantized_per_channel(DataType dt)
+{
+    switch(dt)
+    {
+        case DataType::QSYMM8_PER_CHANNEL:
             return true;
         default:
             return false;
@@ -1105,7 +1129,10 @@ bool check_value_range(T val, DataType dt, QuantizationInfo qinfo = Quantization
     switch(dt)
     {
         case DataType::U8:
-            return ((static_cast<uint8_t>(val) == val) && val >= std::numeric_limits<uint8_t>::lowest() && val <= std::numeric_limits<uint8_t>::max());
+        {
+            const auto val_u8 = static_cast<uint8_t>(val);
+            return ((val_u8 == val) && val >= std::numeric_limits<uint8_t>::lowest() && val <= std::numeric_limits<uint8_t>::max());
+        }
         case DataType::QASYMM8:
         {
             double min = static_cast<double>(dequantize_qasymm8(0, qinfo));
@@ -1113,31 +1140,107 @@ bool check_value_range(T val, DataType dt, QuantizationInfo qinfo = Quantization
             return ((double)val >= min && (double)val <= max);
         }
         case DataType::S8:
-            return ((static_cast<int8_t>(val) == val) && val >= std::numeric_limits<int8_t>::lowest() && val <= std::numeric_limits<int8_t>::max());
+        {
+            const auto val_s8 = static_cast<int8_t>(val);
+            return ((val_s8 == val) && val >= std::numeric_limits<int8_t>::lowest() && val <= std::numeric_limits<int8_t>::max());
+        }
         case DataType::U16:
-            return ((static_cast<uint16_t>(val) == val) && val >= std::numeric_limits<uint16_t>::lowest() && val <= std::numeric_limits<uint16_t>::max());
+        {
+            const auto val_u16 = static_cast<uint16_t>(val);
+            return ((val_u16 == val) && val >= std::numeric_limits<uint16_t>::lowest() && val <= std::numeric_limits<uint16_t>::max());
+        }
         case DataType::S16:
-            return ((static_cast<int16_t>(val) == val) && val >= std::numeric_limits<int16_t>::lowest() && val <= std::numeric_limits<int16_t>::max());
+        {
+            const auto val_s16 = static_cast<int16_t>(val);
+            return ((val_s16 == val) && val >= std::numeric_limits<int16_t>::lowest() && val <= std::numeric_limits<int16_t>::max());
+        }
         case DataType::U32:
-            return ((static_cast<uint32_t>(val) == val) && val >= std::numeric_limits<uint32_t>::lowest() && val <= std::numeric_limits<uint32_t>::max());
+        {
+            const auto val_u32 = static_cast<uint32_t>(val);
+            return ((val_u32 == val) && val >= std::numeric_limits<uint32_t>::lowest() && val <= std::numeric_limits<uint32_t>::max());
+        }
         case DataType::S32:
-            return ((static_cast<int32_t>(val) == val) && val >= std::numeric_limits<int32_t>::lowest() && val <= std::numeric_limits<int32_t>::max());
-        case DataType::U64:
-            return (val >= std::numeric_limits<uint64_t>::lowest() && val <= std::numeric_limits<uint64_t>::max());
-        case DataType::S64:
-            return (val >= std::numeric_limits<int64_t>::lowest() && val <= std::numeric_limits<int64_t>::max());
+        {
+            const auto val_s32 = static_cast<int32_t>(val);
+            return ((val_s32 == val) && val >= std::numeric_limits<int32_t>::lowest() && val <= std::numeric_limits<int32_t>::max());
+        }
+        case DataType::BFLOAT16:
+            return (val >= bfloat16::lowest() && val <= bfloat16::max());
         case DataType::F16:
             return (val >= std::numeric_limits<half>::lowest() && val <= std::numeric_limits<half>::max());
         case DataType::F32:
             return (val >= std::numeric_limits<float>::lowest() && val <= std::numeric_limits<float>::max());
-        case DataType::F64:
-            return (val >= std::numeric_limits<double>::lowest() && val <= std::numeric_limits<double>::max());
-        case DataType::SIZET:
-            return ((static_cast<size_t>(val) == val) && val >= std::numeric_limits<size_t>::lowest() && val <= std::numeric_limits<size_t>::max());
         default:
             ARM_COMPUTE_ERROR("Data type not supported");
             return false;
     }
+}
+
+/** Returns the adjusted vector size in case it is less than the input's first dimension, getting rounded down to its closest valid vector size
+ *
+ * @param[in] vec_size vector size to be adjusted
+ * @param[in] dim0     size of the first dimension
+ *
+ * @return the number of element processed along the X axis per thread
+ */
+inline unsigned int adjust_vec_size(unsigned int vec_size, size_t dim0)
+{
+    ARM_COMPUTE_ERROR_ON(vec_size > 16);
+
+    if((vec_size >= dim0) && (dim0 == 3))
+    {
+        return dim0;
+    }
+
+    while(vec_size > dim0)
+    {
+        vec_size >>= 1;
+    }
+
+    return vec_size;
+}
+
+/** Returns the suffix string of CPU kernel implementation names based on the given data type
+ *
+ * @param[in] data_type The data type the CPU kernel implemetation uses
+ *
+ * @return the suffix string of CPU kernel implementations
+ */
+inline std::string cpu_impl_dt(const DataType &data_type)
+{
+    std::string ret = "";
+
+    switch(data_type)
+    {
+        case DataType::F32:
+            ret = "fp32";
+            break;
+        case DataType::F16:
+            ret = "fp16";
+            break;
+        case DataType::U8:
+            ret = "u8";
+            break;
+        case DataType::S16:
+            ret = "s16";
+            break;
+        case DataType::S32:
+            ret = "s32";
+            break;
+        case DataType::QASYMM8:
+            ret = "qu8";
+            break;
+        case DataType::QASYMM8_SIGNED:
+            ret = "qs8";
+            break;
+        case DataType::QSYMM16:
+            ret = "qs16";
+            break;
+        default:
+            ARM_COMPUTE_ERROR("Unsupported.");
+    }
+
+    return ret;
 }
 
 #ifdef ARM_COMPUTE_ASSERTS_ENABLED
@@ -1168,6 +1271,11 @@ void print_consecutive_elements_impl(std::ostream &s, const T *ptr, unsigned int
         {
             // We use T instead of print_type here is because the std::is_floating_point<half> returns false and then the print_type becomes int.
             s << std::right << static_cast<T>(ptr[i]) << element_delim;
+        }
+        else if(std::is_same<typename std::decay<T>::type, bfloat16>::value)
+        {
+            // We use T instead of print_type here is because the std::is_floating_point<bfloat16> returns false and then the print_type becomes int.
+            s << std::right << float(ptr[i]) << element_delim;
         }
         else
         {
@@ -1203,6 +1311,11 @@ int max_consecutive_elements_display_width_impl(std::ostream &s, const T *ptr, u
             // We use T instead of print_type here is because the std::is_floating_point<half> returns false and then the print_type becomes int.
             ss << static_cast<T>(ptr[i]);
         }
+        else if(std::is_same<typename std::decay<T>::type, bfloat16>::value)
+        {
+            // We use T instead of print_type here is because the std::is_floating_point<bfloat> returns false and then the print_type becomes int.
+            ss << float(ptr[i]);
+        }
         else
         {
             ss << static_cast<print_type>(ptr[i]);
@@ -1236,4 +1349,4 @@ void print_consecutive_elements(std::ostream &s, DataType dt, const uint8_t *ptr
 int max_consecutive_elements_display_width(std::ostream &s, DataType dt, const uint8_t *ptr, unsigned int n);
 #endif /* ARM_COMPUTE_ASSERTS_ENABLED */
 }
-#endif /*__ARM_COMPUTE_UTILS_H__ */
+#endif /*ARM_COMPUTE_UTILS_H */

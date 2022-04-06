@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -32,87 +32,14 @@ namespace test
 {
 namespace validation
 {
-void fill_mask_from_pattern(uint8_t *mask, int cols, int rows, MatrixPattern pattern)
-{
-    unsigned int                v = 0;
-    std::mt19937                gen(library->seed());
-    std::bernoulli_distribution dist(0.5);
-
-    for(int r = 0; r < rows; ++r)
-    {
-        for(int c = 0; c < cols; ++c, ++v)
-        {
-            uint8_t val = 0;
-
-            switch(pattern)
-            {
-                case MatrixPattern::BOX:
-                    val = 255;
-                    break;
-                case MatrixPattern::CROSS:
-                    val = ((r == (rows / 2)) || (c == (cols / 2))) ? 255 : 0;
-                    break;
-                case MatrixPattern::DISK:
-                    val = (((r - rows / 2.0f + 0.5f) * (r - rows / 2.0f + 0.5f)) / ((rows / 2.0f) * (rows / 2.0f)) + ((c - cols / 2.0f + 0.5f) * (c - cols / 2.0f + 0.5f)) / ((cols / 2.0f) *
-                            (cols / 2.0f))) <= 1.0f ? 255 : 0;
-                    break;
-                case MatrixPattern::OTHER:
-                    val = (dist(gen) ? 0 : 255);
-                    break;
-                default:
-                    return;
-            }
-
-            mask[v] = val;
-        }
-    }
-
-    if(pattern == MatrixPattern::OTHER)
-    {
-        std::uniform_int_distribution<uint8_t> distribution_u8(0, ((cols * rows) - 1));
-        mask[distribution_u8(gen)] = 255;
-    }
-}
-
-HarrisCornersParameters harris_corners_parameters()
-{
-    HarrisCornersParameters params;
-
-    std::mt19937                           gen(library->seed());
-    std::uniform_real_distribution<float>  threshold_dist(0.f, 0.001f);
-    std::uniform_real_distribution<float>  sensitivity(0.04f, 0.15f);
-    std::uniform_real_distribution<float>  euclidean_distance(0.f, 30.f);
-    std::uniform_int_distribution<uint8_t> int_dist(0, 255);
-
-    params.threshold             = threshold_dist(gen);
-    params.sensitivity           = sensitivity(gen);
-    params.min_dist              = euclidean_distance(gen);
-    params.constant_border_value = int_dist(gen);
-
-    return params;
-}
-
-CannyEdgeParameters canny_edge_parameters()
-{
-    CannyEdgeParameters params;
-
-    std::mt19937                           gen(library->seed());
-    std::uniform_int_distribution<uint8_t> int_dist(0, 255);
-    std::uniform_int_distribution<uint8_t> threshold_dist(2, 255);
-
-    params.constant_border_value = int_dist(gen);
-    params.upper_thresh          = threshold_dist(gen); // upper_threshold >= 2
-    threshold_dist               = std::uniform_int_distribution<uint8_t>(1, params.upper_thresh - 1);
-    params.lower_thresh          = threshold_dist(gen); // lower_threshold >= 1 && lower_threshold < upper_threshold
-
-    return params;
-}
-
+template <>
 SimpleTensor<float> convert_from_asymmetric(const SimpleTensor<uint8_t> &src)
 {
     const UniformQuantizationInfo &quantization_info = src.quantization_info().uniform();
     SimpleTensor<float>            dst{ src.shape(), DataType::F32, 1, QuantizationInfo(), src.data_layout() };
-
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(int i = 0; i < src.num_elements(); ++i)
     {
         dst[i] = dequantize_qasymm8(src[i], quantization_info);
@@ -120,14 +47,82 @@ SimpleTensor<float> convert_from_asymmetric(const SimpleTensor<uint8_t> &src)
     return dst;
 }
 
+template <>
+SimpleTensor<float> convert_from_asymmetric(const SimpleTensor<int8_t> &src)
+{
+    const UniformQuantizationInfo &quantization_info = src.quantization_info().uniform();
+    SimpleTensor<float>            dst{ src.shape(), DataType::F32, 1, QuantizationInfo(), src.data_layout() };
+
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
+    for(int i = 0; i < src.num_elements(); ++i)
+    {
+        dst[i] = dequantize_qasymm8_signed(src[i], quantization_info);
+    }
+    return dst;
+}
+
+template <>
+SimpleTensor<float> convert_from_asymmetric(const SimpleTensor<uint16_t> &src)
+{
+    const UniformQuantizationInfo &quantization_info = src.quantization_info().uniform();
+    SimpleTensor<float>            dst{ src.shape(), DataType::F32, 1, QuantizationInfo(), src.data_layout() };
+
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
+    for(int i = 0; i < src.num_elements(); ++i)
+    {
+        dst[i] = dequantize_qasymm16(src[i], quantization_info);
+    }
+    return dst;
+}
+
+template <>
 SimpleTensor<uint8_t> convert_to_asymmetric(const SimpleTensor<float> &src, const QuantizationInfo &quantization_info)
 {
     SimpleTensor<uint8_t>          dst{ src.shape(), DataType::QASYMM8, 1, quantization_info };
     const UniformQuantizationInfo &qinfo = quantization_info.uniform();
 
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(int i = 0; i < src.num_elements(); ++i)
     {
         dst[i] = quantize_qasymm8(src[i], qinfo);
+    }
+    return dst;
+}
+
+template <>
+SimpleTensor<int8_t> convert_to_asymmetric(const SimpleTensor<float> &src, const QuantizationInfo &quantization_info)
+{
+    SimpleTensor<int8_t>           dst{ src.shape(), DataType::QASYMM8_SIGNED, 1, quantization_info };
+    const UniformQuantizationInfo &qinfo = quantization_info.uniform();
+
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
+    for(int i = 0; i < src.num_elements(); ++i)
+    {
+        dst[i] = quantize_qasymm8_signed(src[i], qinfo);
+    }
+    return dst;
+}
+
+template <>
+SimpleTensor<uint16_t> convert_to_asymmetric(const SimpleTensor<float> &src, const QuantizationInfo &quantization_info)
+{
+    SimpleTensor<uint16_t>         dst{ src.shape(), DataType::QASYMM16, 1, quantization_info };
+    const UniformQuantizationInfo &qinfo = quantization_info.uniform();
+
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
+    for(int i = 0; i < src.num_elements(); ++i)
+    {
+        dst[i] = quantize_qasymm16(src[i], qinfo);
     }
     return dst;
 }
@@ -138,6 +133,9 @@ SimpleTensor<int16_t> convert_to_symmetric(const SimpleTensor<float> &src, const
     SimpleTensor<int16_t>          dst{ src.shape(), DataType::QSYMM16, 1, quantization_info };
     const UniformQuantizationInfo &qinfo = quantization_info.uniform();
 
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(int i = 0; i < src.num_elements(); ++i)
     {
         dst[i] = quantize_qsymm16(src[i], qinfo);
@@ -151,6 +149,9 @@ SimpleTensor<float> convert_from_symmetric(const SimpleTensor<int16_t> &src)
     const UniformQuantizationInfo &quantization_info = src.quantization_info().uniform();
     SimpleTensor<float>            dst{ src.shape(), DataType::F32, 1, QuantizationInfo(), src.data_layout() };
 
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(int i = 0; i < src.num_elements(); ++i)
     {
         dst[i] = dequantize_qsymm16(src[i], quantization_info);
@@ -169,6 +170,9 @@ void matrix_multiply(const SimpleTensor<T> &a, const SimpleTensor<T> &b, SimpleT
     const int N = b.shape()[0]; // Cols
     const int K = b.shape()[1];
 
+#if defined(_OPENMP)
+    #pragma omp parallel for collapse(2)
+#endif /* _OPENMP */
     for(int y = 0; y < M; ++y)
     {
         for(int x = 0; x < N; ++x)
@@ -192,6 +196,9 @@ void transpose_matrix(const SimpleTensor<T> &in, SimpleTensor<T> &out)
     const int width  = in.shape()[0];
     const int height = in.shape()[1];
 
+#if defined(_OPENMP)
+    #pragma omp parallel for collapse(2)
+#endif /* _OPENMP */
     for(int y = 0; y < height; ++y)
     {
         for(int x = 0; x < width; ++x)
@@ -298,6 +305,72 @@ std::pair<int, int> get_quantized_bounds(const QuantizationInfo &quant_info, flo
     const int min_bound = quantize_qasymm8(min, quant_info.uniform());
     const int max_bound = quantize_qasymm8(max, quant_info.uniform());
     return std::pair<int, int> { min_bound, max_bound };
+}
+
+std::pair<int, int> get_quantized_qasymm8_signed_bounds(const QuantizationInfo &quant_info, float min, float max)
+{
+    ARM_COMPUTE_ERROR_ON_MSG(min > max, "min must be lower equal than max");
+
+    const int min_bound = quantize_qasymm8_signed(min, quant_info.uniform());
+    const int max_bound = quantize_qasymm8_signed(max, quant_info.uniform());
+    return std::pair<int, int> { min_bound, max_bound };
+}
+
+std::pair<int, int> get_symm_quantized_per_channel_bounds(const QuantizationInfo &quant_info, float min, float max, size_t channel_id)
+{
+    ARM_COMPUTE_ERROR_ON_MSG(min > max, "min must be lower equal than max");
+
+    const int min_bound = quantize_qsymm8_per_channel(min, quant_info, channel_id);
+    const int max_bound = quantize_qsymm8_per_channel(max, quant_info, channel_id);
+    return std::pair<int, int> { min_bound, max_bound };
+}
+
+void add_padding_x(std::initializer_list<ITensor *> tensors, const DataLayout &data_layout, bool only_right_pad)
+{
+    if(data_layout == DataLayout::NHWC)
+    {
+        constexpr unsigned int lower = 1U;
+        constexpr unsigned int upper = 16U;
+
+        std::uniform_int_distribution<unsigned int> distribution(lower, upper);
+        size_t                                      seed_offset = 0;
+
+        for(ITensor *tensor : tensors)
+        {
+            ARM_COMPUTE_ERROR_ON(!tensor->info()->is_resizable());
+
+            std::mt19937 gen(library->seed() + seed_offset++);
+
+            const unsigned int right = distribution(gen);
+            const unsigned int left  = only_right_pad ? 0 : distribution(gen);
+
+            tensor->info()->extend_padding(PaddingSize(0U, right, 0U, left));
+        }
+    }
+}
+
+void add_padding_y(std::initializer_list<ITensor *> tensors, const DataLayout &data_layout)
+{
+    if(data_layout == DataLayout::NHWC)
+    {
+        constexpr unsigned int lower = 1U;
+        constexpr unsigned int upper = 4U;
+
+        std::uniform_int_distribution<unsigned int> distribution(lower, upper);
+        size_t                                      seed_offset = 0;
+
+        for(ITensor *tensor : tensors)
+        {
+            ARM_COMPUTE_ERROR_ON(!tensor->info()->is_resizable());
+
+            std::mt19937 gen(library->seed() + seed_offset++);
+
+            const unsigned int top    = distribution(gen);
+            const unsigned int bottom = distribution(gen);
+
+            tensor->info()->extend_padding(PaddingSize(top, 0U, bottom, 0U));
+        }
+    }
 }
 
 template void get_tile(const SimpleTensor<float> &in, SimpleTensor<float> &roi, const Coordinates &coord);

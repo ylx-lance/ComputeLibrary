@@ -24,6 +24,7 @@
 #ifdef __aarch64__
 
 #include "arm_gemm.hpp"
+#include "utils.hpp"
 
 #include <arm_neon.h>
 
@@ -47,16 +48,23 @@ namespace {
  * applied to negative values being shifted right to make sure they round
  * properly - if negative values are never output (e.g. fused ReLU) this is
  * unnecessary.
+ *
+ * The 'per_channel' template parameter selects between per channel and per
+ * layer requantization - in the former case we need to load vectors of
+ * shifts and multipliers for each column.  A separate vector for each
+ * column is set up in any case (and it is hoped that the compiler can elide
+ * the needless movs in the per-layer case).
  */
-template<bool do_shift_correction>
-void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, unsigned int height,
+template<bool do_shift_correction, bool per_channel, bool do_left_shift>
+void requantize_block_32_int(const Requantize32 &qp, unsigned int width, unsigned int height,
                              const int32_t *input, unsigned int in_stride, int8_t *output, unsigned int out_stride,
-                             const int32_t *row_bias, const int32_t *col_bias) {
-    const int32x4_t v_mul      = vdupq_n_s32(qp.requant_mul);
-    const int32x4_t v_shift    = vdupq_n_s32(qp.requant_shift);
-    const int32x4_t v_minval   = vdupq_n_s32(qp.minval);
-    const int32x4_t v_maxval   = vdupq_n_s32(qp.maxval);
-    const int32x4_t v_c_offset = vdupq_n_s32(qp.c_offset);
+                             const int32_t *row_bias, const int32_t *col_bias, const unsigned int start_col) {
+    const int32x4_t v_mul          = vdupq_n_s32(qp.per_layer_mul);
+    const int32x4_t v_right_shift  = vdupq_n_s32(qp.per_layer_right_shift);
+    const int32x4_t v_left_shift   = vdupq_n_s32(qp.per_layer_left_shift);
+    const int32x4_t v_minval       = vdupq_n_s32(qp.minval);
+    const int32x4_t v_maxval       = vdupq_n_s32(qp.maxval);
+    const int32x4_t v_c_offset     = vdupq_n_s32(qp.c_offset);
 
     /* To make sure we have plenty of accumulators, compute two rows at a
      * time.  If the number of rows is odd, compute the bottom row twice to
@@ -70,6 +78,9 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
         unsigned int odds=(width % 4);
 
         const int32_t *colptr = col_bias;
+        const int32_t *perch_mul_ptr    = qp.per_channel_muls + start_col;
+        const int32_t *perch_shift_ptr  = qp.per_channel_right_shifts + start_col;
+        const int32_t *perch_shiftl_ptr = qp.per_channel_left_shifts + start_col;
 
         const int32_t *in_ptr = input + (row * in_stride);
         int8_t *out_ptr = output + (row * out_stride);
@@ -93,6 +104,47 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
         const int32x4_t v_row_sum1 = vdupq_n_s32(row_sum1);
 
         while (blocks--) {
+            int32x4_t v_mul0;
+            int32x4_t v_mul1;
+            int32x4_t v_mul2;
+            int32x4_t v_mul3;
+
+            int32x4_t v_shf0;
+            int32x4_t v_shf1;
+            int32x4_t v_shf2;
+            int32x4_t v_shf3;
+
+            int32x4_t v_shf0l;
+            int32x4_t v_shf1l;
+            int32x4_t v_shf2l;
+            int32x4_t v_shf3l;
+
+            if (per_channel) {
+                v_mul0 = vld1q_s32(perch_mul_ptr);
+                v_mul1 = vld1q_s32(perch_mul_ptr + 4);
+                v_mul2 = vld1q_s32(perch_mul_ptr + 8);
+                v_mul3 = vld1q_s32(perch_mul_ptr + 12);
+                perch_mul_ptr += 16;
+
+                v_shf0 = vld1q_s32(perch_shift_ptr);
+                v_shf1 = vld1q_s32(perch_shift_ptr + 4);
+                v_shf2 = vld1q_s32(perch_shift_ptr + 8);
+                v_shf3 = vld1q_s32(perch_shift_ptr + 12);
+                perch_shift_ptr += 16;
+
+                if (do_left_shift) {
+                    v_shf0l = vld1q_s32(perch_shiftl_ptr);
+                    v_shf1l = vld1q_s32(perch_shiftl_ptr + 4);
+                    v_shf2l = vld1q_s32(perch_shiftl_ptr + 8);
+                    v_shf3l = vld1q_s32(perch_shiftl_ptr + 12);
+                    perch_shiftl_ptr += 16;
+                }
+            } else {
+                v_mul0=v_mul1=v_mul2=v_mul3=v_mul;
+                v_shf0=v_shf1=v_shf2=v_shf3=v_right_shift;
+                v_shf0l=v_shf1l=v_shf2l=v_shf3l=v_left_shift;
+            }
+
             // Load column pointers
             int32x4_t v_col0 = vld1q_s32(colptr);
             int32x4_t v_col1 = vld1q_s32(colptr + 4);
@@ -135,28 +187,43 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
             v_in12 = vaddq_s32(v_in12, v_col2);
             v_in13 = vaddq_s32(v_in13, v_col3);
 
-            // Quantize - start with multiply
-            v_in00 = vqrdmulhq_s32(v_in00, v_mul);
-            v_in01 = vqrdmulhq_s32(v_in01, v_mul);
-            v_in02 = vqrdmulhq_s32(v_in02, v_mul);
-            v_in03 = vqrdmulhq_s32(v_in03, v_mul);
+            // Quantize
 
-            v_in10 = vqrdmulhq_s32(v_in10, v_mul);
-            v_in11 = vqrdmulhq_s32(v_in11, v_mul);
-            v_in12 = vqrdmulhq_s32(v_in12, v_mul);
-            v_in13 = vqrdmulhq_s32(v_in13, v_mul);
+            // If a left shift is needed it needs to happen first.
+            if (do_left_shift) {
+                v_in00 = vrshlq_s32(v_in00, v_shf0l);
+                v_in01 = vrshlq_s32(v_in01, v_shf1l);
+                v_in02 = vrshlq_s32(v_in02, v_shf2l);
+                v_in03 = vrshlq_s32(v_in03, v_shf3l);
+
+                v_in10 = vrshlq_s32(v_in10, v_shf0l);
+                v_in11 = vrshlq_s32(v_in11, v_shf1l);
+                v_in12 = vrshlq_s32(v_in12, v_shf2l);
+                v_in13 = vrshlq_s32(v_in13, v_shf3l);
+            }
+
+            // Multiply
+            v_in00 = vqrdmulhq_s32(v_in00, v_mul0);
+            v_in01 = vqrdmulhq_s32(v_in01, v_mul1);
+            v_in02 = vqrdmulhq_s32(v_in02, v_mul2);
+            v_in03 = vqrdmulhq_s32(v_in03, v_mul3);
+
+            v_in10 = vqrdmulhq_s32(v_in10, v_mul0);
+            v_in11 = vqrdmulhq_s32(v_in11, v_mul1);
+            v_in12 = vqrdmulhq_s32(v_in12, v_mul2);
+            v_in13 = vqrdmulhq_s32(v_in13, v_mul3);
 
             // Compute and add on corrective offset
             if (do_shift_correction) {
-                int32x4_t v_temp00 = vandq_s32(v_in00, v_shift);
-                int32x4_t v_temp01 = vandq_s32(v_in01, v_shift);
-                int32x4_t v_temp02 = vandq_s32(v_in02, v_shift);
-                int32x4_t v_temp03 = vandq_s32(v_in03, v_shift);
+                int32x4_t v_temp00 = vandq_s32(v_in00, v_shf0);
+                int32x4_t v_temp01 = vandq_s32(v_in01, v_shf1);
+                int32x4_t v_temp02 = vandq_s32(v_in02, v_shf2);
+                int32x4_t v_temp03 = vandq_s32(v_in03, v_shf3);
 
-                int32x4_t v_temp10 = vandq_s32(v_in10, v_shift);
-                int32x4_t v_temp11 = vandq_s32(v_in11, v_shift);
-                int32x4_t v_temp12 = vandq_s32(v_in12, v_shift);
-                int32x4_t v_temp13 = vandq_s32(v_in13, v_shift);
+                int32x4_t v_temp10 = vandq_s32(v_in10, v_shf0);
+                int32x4_t v_temp11 = vandq_s32(v_in11, v_shf1);
+                int32x4_t v_temp12 = vandq_s32(v_in12, v_shf2);
+                int32x4_t v_temp13 = vandq_s32(v_in13, v_shf3);
 
                 v_temp00 = vshrq_n_s32(v_temp00, 31);
                 v_temp01 = vshrq_n_s32(v_temp01, 31);
@@ -179,15 +246,15 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
                 v_in13 = vqaddq_s32(v_in13, v_temp13);
             }
 
-            v_in00 = vrshlq_s32(v_in00, v_shift);
-            v_in01 = vrshlq_s32(v_in01, v_shift);
-            v_in02 = vrshlq_s32(v_in02, v_shift);
-            v_in03 = vrshlq_s32(v_in03, v_shift);
+            v_in00 = vrshlq_s32(v_in00, v_shf0);
+            v_in01 = vrshlq_s32(v_in01, v_shf1);
+            v_in02 = vrshlq_s32(v_in02, v_shf2);
+            v_in03 = vrshlq_s32(v_in03, v_shf3);
 
-            v_in10 = vrshlq_s32(v_in10, v_shift);
-            v_in11 = vrshlq_s32(v_in11, v_shift);
-            v_in12 = vrshlq_s32(v_in12, v_shift);
-            v_in13 = vrshlq_s32(v_in13, v_shift);
+            v_in10 = vrshlq_s32(v_in10, v_shf0);
+            v_in11 = vrshlq_s32(v_in11, v_shf1);
+            v_in12 = vrshlq_s32(v_in12, v_shf2);
+            v_in13 = vrshlq_s32(v_in13, v_shf3);
 
             v_in00 = vaddq_s32(v_in00, v_c_offset);
             v_in01 = vaddq_s32(v_in01, v_c_offset);
@@ -234,7 +301,200 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
             out_ptr1 += 16;
         }
 
+        // We are often quantizing one block of interleaved kernel output at a time - these are three registers
+        // wide.  Special case that here.
+        if (regs==3) {
+            regs -= 3;
+
+            int32x4_t v_mul0;
+            int32x4_t v_mul1;
+            int32x4_t v_mul2;
+
+            int32x4_t v_shf0;
+            int32x4_t v_shf1;
+            int32x4_t v_shf2;
+
+            int32x4_t v_shf0l;
+            int32x4_t v_shf1l;
+            int32x4_t v_shf2l;
+
+            if (per_channel) {
+                v_mul0 = vld1q_s32(perch_mul_ptr);
+                v_mul1 = vld1q_s32(perch_mul_ptr + 4);
+                v_mul2 = vld1q_s32(perch_mul_ptr + 8);
+                perch_mul_ptr += 12;
+
+                v_shf0 = vld1q_s32(perch_shift_ptr);
+                v_shf1 = vld1q_s32(perch_shift_ptr + 4);
+                v_shf2 = vld1q_s32(perch_shift_ptr + 8);
+                perch_shift_ptr += 12;
+
+                if (do_left_shift) {
+                    v_shf0l = vld1q_s32(perch_shiftl_ptr);
+                    v_shf1l = vld1q_s32(perch_shiftl_ptr + 4);
+                    v_shf2l = vld1q_s32(perch_shiftl_ptr + 8);
+                    perch_shiftl_ptr += 12;
+                }
+            } else {
+                v_mul0=v_mul1=v_mul2=v_mul;
+                v_shf0=v_shf1=v_shf2=v_right_shift;
+                v_shf0l=v_shf1l=v_shf2l=v_left_shift;
+            }
+
+            // Load column pointers
+            int32x4_t v_col0 = vld1q_s32(colptr);
+            int32x4_t v_col1 = vld1q_s32(colptr + 4);
+            int32x4_t v_col2 = vld1q_s32(colptr + 8);
+            colptr += 12;
+
+            // Load input data (row 0);
+            int32x4_t v_in00 = vld1q_s32(in_ptr);
+            int32x4_t v_in01 = vld1q_s32(in_ptr + 4);
+            int32x4_t v_in02 = vld1q_s32(in_ptr + 8);
+            in_ptr += 12;
+
+            // Load input data (row 1);
+            int32x4_t v_in10 = vld1q_s32(in_ptr1);
+            int32x4_t v_in11 = vld1q_s32(in_ptr1 + 4);
+            int32x4_t v_in12 = vld1q_s32(in_ptr1 + 8);
+            in_ptr1 += 12;
+
+            // Add on row bias and column bias
+            v_in00 = vaddq_s32(v_in00, v_row_sum);
+            v_in01 = vaddq_s32(v_in01, v_row_sum);
+            v_in02 = vaddq_s32(v_in02, v_row_sum);
+
+            v_in10 = vaddq_s32(v_in10, v_row_sum1);
+            v_in11 = vaddq_s32(v_in11, v_row_sum1);
+            v_in12 = vaddq_s32(v_in12, v_row_sum1);
+
+            v_in00 = vaddq_s32(v_in00, v_col0);
+            v_in01 = vaddq_s32(v_in01, v_col1);
+            v_in02 = vaddq_s32(v_in02, v_col2);
+
+            v_in10 = vaddq_s32(v_in10, v_col0);
+            v_in11 = vaddq_s32(v_in11, v_col1);
+            v_in12 = vaddq_s32(v_in12, v_col2);
+
+            // Quantize
+
+            // If a left shift is needed it needs to happen first.
+            if (do_left_shift) {
+                v_in00 = vrshlq_s32(v_in00, v_shf0l);
+                v_in01 = vrshlq_s32(v_in01, v_shf1l);
+                v_in02 = vrshlq_s32(v_in02, v_shf2l);
+
+                v_in10 = vrshlq_s32(v_in10, v_shf0l);
+                v_in11 = vrshlq_s32(v_in11, v_shf1l);
+                v_in12 = vrshlq_s32(v_in12, v_shf2l);
+            }
+
+            // Multiply
+            v_in00 = vqrdmulhq_s32(v_in00, v_mul0);
+            v_in01 = vqrdmulhq_s32(v_in01, v_mul1);
+            v_in02 = vqrdmulhq_s32(v_in02, v_mul2);
+
+            v_in10 = vqrdmulhq_s32(v_in10, v_mul0);
+            v_in11 = vqrdmulhq_s32(v_in11, v_mul1);
+            v_in12 = vqrdmulhq_s32(v_in12, v_mul2);
+
+            // Compute and add on corrective offset
+            if (do_shift_correction) {
+                int32x4_t v_temp00 = vandq_s32(v_in00, v_shf0);
+                int32x4_t v_temp01 = vandq_s32(v_in01, v_shf1);
+                int32x4_t v_temp02 = vandq_s32(v_in02, v_shf2);
+
+                int32x4_t v_temp10 = vandq_s32(v_in10, v_shf0);
+                int32x4_t v_temp11 = vandq_s32(v_in11, v_shf1);
+                int32x4_t v_temp12 = vandq_s32(v_in12, v_shf2);
+
+                v_temp00 = vshrq_n_s32(v_temp00, 31);
+                v_temp01 = vshrq_n_s32(v_temp01, 31);
+                v_temp02 = vshrq_n_s32(v_temp02, 31);
+
+                v_temp10 = vshrq_n_s32(v_temp10, 31);
+                v_temp11 = vshrq_n_s32(v_temp11, 31);
+                v_temp12 = vshrq_n_s32(v_temp12, 31);
+
+                v_in00 = vqaddq_s32(v_in00, v_temp00);
+                v_in01 = vqaddq_s32(v_in01, v_temp01);
+                v_in02 = vqaddq_s32(v_in02, v_temp02);
+
+                v_in10 = vqaddq_s32(v_in10, v_temp10);
+                v_in11 = vqaddq_s32(v_in11, v_temp11);
+                v_in12 = vqaddq_s32(v_in12, v_temp12);
+            }
+
+            v_in00 = vrshlq_s32(v_in00, v_shf0);
+            v_in01 = vrshlq_s32(v_in01, v_shf1);
+            v_in02 = vrshlq_s32(v_in02, v_shf2);
+
+            v_in10 = vrshlq_s32(v_in10, v_shf0);
+            v_in11 = vrshlq_s32(v_in11, v_shf1);
+            v_in12 = vrshlq_s32(v_in12, v_shf2);
+
+            v_in00 = vaddq_s32(v_in00, v_c_offset);
+            v_in01 = vaddq_s32(v_in01, v_c_offset);
+            v_in02 = vaddq_s32(v_in02, v_c_offset);
+
+            v_in10 = vaddq_s32(v_in10, v_c_offset);
+            v_in11 = vaddq_s32(v_in11, v_c_offset);
+            v_in12 = vaddq_s32(v_in12, v_c_offset);
+
+            v_in00 = vmaxq_s32(v_in00, v_minval);
+            v_in01 = vmaxq_s32(v_in01, v_minval);
+            v_in02 = vmaxq_s32(v_in02, v_minval);
+
+            v_in10 = vmaxq_s32(v_in10, v_minval);
+            v_in11 = vmaxq_s32(v_in11, v_minval);
+            v_in12 = vmaxq_s32(v_in12, v_minval);
+
+            v_in00 = vminq_s32(v_in00, v_maxval);
+            v_in01 = vminq_s32(v_in01, v_maxval);
+            v_in02 = vminq_s32(v_in02, v_maxval);
+
+            v_in10 = vminq_s32(v_in10, v_maxval);
+            v_in11 = vminq_s32(v_in11, v_maxval);
+            v_in12 = vminq_s32(v_in12, v_maxval);
+
+            int16x8_t v_uz00 = vuzp1q_s16(vreinterpretq_s16_s32(v_in00), vreinterpretq_s16_s32(v_in01));
+            int16x8_t v_uz01 = vuzp1q_s16(vreinterpretq_s16_s32(v_in02), vreinterpretq_s16_s32(v_in02));
+
+            int16x8_t v_uz10 = vuzp1q_s16(vreinterpretq_s16_s32(v_in10), vreinterpretq_s16_s32(v_in11));
+            int16x8_t v_uz11 = vuzp1q_s16(vreinterpretq_s16_s32(v_in12), vreinterpretq_s16_s32(v_in12));
+
+            int8x16_t v_uz0 = vuzp1q_s8(vreinterpretq_s8_s16(v_uz00), vreinterpretq_s8_s16(v_uz01));
+            int8x16_t v_uz1 = vuzp1q_s8(vreinterpretq_s8_s16(v_uz10), vreinterpretq_s8_s16(v_uz11));
+
+            vst1q_lane_s64(reinterpret_cast<int64_t *>(out_ptr), vreinterpretq_s64_s8(v_uz0), 0);
+            vst1q_lane_s32(reinterpret_cast<int32_t *>(out_ptr + 8), vreinterpretq_s32_s8(v_uz0), 2);
+            out_ptr += 12;
+            vst1q_lane_s64(reinterpret_cast<int64_t *>(out_ptr1), vreinterpretq_s64_s8(v_uz1), 0);
+            vst1q_lane_s32(reinterpret_cast<int32_t *>(out_ptr1 + 8), vreinterpretq_s32_s8(v_uz1), 2);
+            out_ptr1 += 12;
+        }
+
         while (regs--) {
+            int32x4_t v_mul0;
+            int32x4_t v_shf0;
+            int32x4_t v_shf0l;
+
+            if (per_channel) {
+                v_mul0 = vld1q_s32(perch_mul_ptr);
+                perch_mul_ptr += 4;
+
+                v_shf0 = vld1q_s32(perch_shift_ptr);
+                perch_shift_ptr += 4;
+
+                if (do_left_shift) {
+                    v_shf0l = vld1q_s32(perch_shiftl_ptr);
+                    perch_shiftl_ptr += 4;
+                }
+            } else {
+                v_mul0=v_mul;
+                v_shf0=v_right_shift;
+                v_shf0l=v_left_shift;
+            }
             // Load column pointers
             int32x4_t v_col0 = vld1q_s32(colptr);
             colptr += 4;
@@ -257,16 +517,23 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
 
             v_in10 = vaddq_s32(v_in10, v_col0);
 
-            // Quantize - start with multiply
-            v_in00 = vqrdmulhq_s32(v_in00, v_mul);
+            // Quantize - start with (optional) left shift
+            if (do_left_shift) {
+                v_in00 = vrshlq_s32(v_in00, v_shf0l);
 
-            v_in10 = vqrdmulhq_s32(v_in10, v_mul);
+                v_in10 = vrshlq_s32(v_in10, v_shf0l);
+            }
+
+            // Then multiply
+            v_in00 = vqrdmulhq_s32(v_in00, v_mul0);
+
+            v_in10 = vqrdmulhq_s32(v_in10, v_mul0);
 
             // Compute and add on corrective offset
             if (do_shift_correction) {
-                int32x4_t v_temp00 = vandq_s32(v_in00, v_shift);
+                int32x4_t v_temp00 = vandq_s32(v_in00, v_shf0);
 
-                int32x4_t v_temp10 = vandq_s32(v_in10, v_shift);
+                int32x4_t v_temp10 = vandq_s32(v_in10, v_shf0);
 
                 v_temp00 = vshrq_n_s32(v_temp00, 31);
 
@@ -277,9 +544,9 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
                 v_in10 = vqaddq_s32(v_in10, v_temp10);
             }
 
-            v_in00 = vrshlq_s32(v_in00, v_shift);
+            v_in00 = vrshlq_s32(v_in00, v_shf0);
 
-            v_in10 = vrshlq_s32(v_in10, v_shift);
+            v_in10 = vrshlq_s32(v_in10, v_shf0);
 
             v_in00 = vaddq_s32(v_in00, v_c_offset);
 
@@ -307,21 +574,51 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
             int32x4_t v_col0 = vdupq_n_s32(0);
             int32x4_t v_in00 = vdupq_n_s32(0);
             int32x4_t v_in10 = vdupq_n_s32(0);
+            int32x4_t v_mul0 = vdupq_n_s32(0);
+            int32x4_t v_shf0 = vdupq_n_s32(0);
+            int32x4_t v_shf0l = vdupq_n_s32(0);
+
+            if (!per_channel) {
+                v_mul0 = v_mul;
+                v_shf0 = v_right_shift;
+                v_shf0l = v_left_shift;
+            }
 
             do {
                 v_col0 = vld1q_lane_s32(colptr, v_col0, 0);
                 v_in00 = vld1q_lane_s32(in_ptr, v_in00, 0);
                 v_in10 = vld1q_lane_s32(in_ptr1, v_in10, 0);
+                if (per_channel) {
+                    v_mul0 = vld1q_lane_s32(perch_mul_ptr, v_mul0, 0);
+                    v_shf0 = vld1q_lane_s32(perch_shift_ptr, v_shf0, 0);
+                    if (do_left_shift) {
+                        v_shf0l = vld1q_lane_s32(perch_shiftl_ptr, v_shf0l, 0);
+                    }
+                }
                 if (odds == 1) { break; }
 
                 v_col0 = vld1q_lane_s32(colptr + 1, v_col0, 1);
                 v_in00 = vld1q_lane_s32(in_ptr + 1, v_in00, 1);
                 v_in10 = vld1q_lane_s32(in_ptr1 + 1, v_in10, 1);
+                if (per_channel) {
+                    v_mul0 = vld1q_lane_s32(perch_mul_ptr + 1, v_mul0, 1);
+                    v_shf0 = vld1q_lane_s32(perch_shift_ptr + 1, v_shf0, 1);
+                    if (do_left_shift) {
+                        v_shf0l = vld1q_lane_s32(perch_shiftl_ptr + 1, v_shf0l, 1);
+                    }
+                }
                 if (odds == 2) { break; }
 
                 v_col0 = vld1q_lane_s32(colptr + 2, v_col0, 2);
                 v_in00 = vld1q_lane_s32(in_ptr + 2, v_in00, 2);
                 v_in10 = vld1q_lane_s32(in_ptr1 + 2, v_in10, 2);
+                if (per_channel) {
+                    v_mul0 = vld1q_lane_s32(perch_mul_ptr + 2, v_mul0, 2);
+                    v_shf0 = vld1q_lane_s32(perch_shift_ptr + 2, v_shf0, 2);
+                    if (do_left_shift) {
+                        v_shf0l = vld1q_lane_s32(perch_shiftl_ptr + 2, v_shf0l, 2);
+                    }
+                }
             } while (0);
 
             // Add on row sum and bias constant
@@ -334,16 +631,23 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
 
             v_in10 = vaddq_s32(v_in10, v_col0);
 
-            // Quantize - start with multiply
-            v_in00 = vqrdmulhq_s32(v_in00, v_mul);
+            // Quantize - start with (optional) left shift
+            if (do_left_shift) {
+                v_in00 = vrshlq_s32(v_in00, v_shf0l);
 
-            v_in10 = vqrdmulhq_s32(v_in10, v_mul);
+                v_in10 = vrshlq_s32(v_in10, v_shf0l);
+            }
+
+            // Then multiply
+            v_in00 = vqrdmulhq_s32(v_in00, v_mul0);
+
+            v_in10 = vqrdmulhq_s32(v_in10, v_mul0);
 
             // Compute and add on corrective offset
             if (do_shift_correction) {
-                int32x4_t v_temp00 = vandq_s32(v_in00, v_shift);
+                int32x4_t v_temp00 = vandq_s32(v_in00, v_shf0);
 
-                int32x4_t v_temp10 = vandq_s32(v_in10, v_shift);
+                int32x4_t v_temp10 = vandq_s32(v_in10, v_shf0);
 
                 v_temp00 = vshrq_n_s32(v_temp00, 31);
 
@@ -354,9 +658,9 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
                 v_in10 = vqaddq_s32(v_in10, v_temp10);
             }
 
-            v_in00 = vrshlq_s32(v_in00, v_shift);
+            v_in00 = vrshlq_s32(v_in00, v_shf0);
 
-            v_in10 = vrshlq_s32(v_in10, v_shift);
+            v_in10 = vrshlq_s32(v_in10, v_shf0);
 
             v_in00 = vaddq_s32(v_in00, v_c_offset);
 
@@ -391,25 +695,55 @@ void requantize_block_32_int(const ARequantizeLayer32 &qp, unsigned int width, u
 } // anonymous namespace
 
 template<typename Tin, typename Tout>
-void requantize_block_32(const ARequantizeLayer32 &qp, unsigned int width, unsigned int height,
+void requantize_block_32(const Requantize32 &qp, unsigned int width, unsigned int height,
                          const Tin *input, unsigned int in_stride, Tout *output, unsigned int out_stride,
-                         const int32_t *row_bias, const int32_t *col_bias) {
-    if (qp.minval >= qp.c_offset) {
-        requantize_block_32_int<false>(qp, width, height, reinterpret_cast<const int32_t *>(input), in_stride,
-                         reinterpret_cast<int8_t *>(output), out_stride, row_bias, col_bias);
+                         const int32_t *row_bias, const int32_t *col_bias, unsigned int start_col) {
+    if (qp.per_channel_requant) {
+        if (qp.minval >= qp.c_offset) {
+            if (qp.per_channel_left_shifts) {
+                requantize_block_32_int<false, true, true>(qp, width, height, reinterpret_cast<const int32_t *>(input), in_stride,
+                                 reinterpret_cast<int8_t *>(output), out_stride, row_bias, col_bias, start_col);
+            } else {
+                requantize_block_32_int<false, true, false>(qp, width, height, reinterpret_cast<const int32_t *>(input), in_stride,
+                                 reinterpret_cast<int8_t *>(output), out_stride, row_bias, col_bias, start_col);
+            }
+        } else {
+            if (qp.per_channel_left_shifts) {
+                requantize_block_32_int<true, true, true>(qp, width, height, reinterpret_cast<const int32_t *>(input), in_stride,
+                                 reinterpret_cast<int8_t *>(output), out_stride, row_bias, col_bias, start_col);
+            } else {
+                requantize_block_32_int<true, true, false>(qp, width, height, reinterpret_cast<const int32_t *>(input), in_stride,
+                                 reinterpret_cast<int8_t *>(output), out_stride, row_bias, col_bias, start_col);
+            }
+        }
     } else {
-        requantize_block_32_int<true>(qp, width, height, reinterpret_cast<const int32_t *>(input), in_stride,
-                         reinterpret_cast<int8_t *>(output), out_stride, row_bias, col_bias);
+        if (qp.minval >= qp.c_offset) {
+            if (qp.per_layer_left_shift > 0) {
+                requantize_block_32_int<false, false, true>(qp, width, height, reinterpret_cast<const int32_t *>(input), in_stride,
+                                 reinterpret_cast<int8_t *>(output), out_stride, row_bias, col_bias, start_col);
+            } else {
+                requantize_block_32_int<false, false, false>(qp, width, height, reinterpret_cast<const int32_t *>(input), in_stride,
+                                 reinterpret_cast<int8_t *>(output), out_stride, row_bias, col_bias, start_col);
+            }
+        } else {
+            if (qp.per_layer_left_shift > 0) {
+                requantize_block_32_int<true, false, true>(qp, width, height, reinterpret_cast<const int32_t *>(input), in_stride,
+                                 reinterpret_cast<int8_t *>(output), out_stride, row_bias, col_bias, start_col);
+            } else {
+                requantize_block_32_int<true, false, false>(qp, width, height, reinterpret_cast<const int32_t *>(input), in_stride,
+                                 reinterpret_cast<int8_t *>(output), out_stride, row_bias, col_bias, start_col);
+            }
+        }
     }
 }
 
-template void requantize_block_32(const ARequantizeLayer32 &qp, unsigned int width, unsigned int height,
+template void requantize_block_32(const Requantize32 &qp, unsigned int width, unsigned int height,
                          const int32_t *input, unsigned int in_stride, int8_t *output, unsigned int out_stride,
-                         const int32_t *row_bias, const int32_t *col_bias);
+                         const int32_t *row_bias, const int32_t *col_bias, unsigned int start_col);
 
-template void requantize_block_32(const ARequantizeLayer32 &qp, unsigned int width, unsigned int height,
+template void requantize_block_32(const Requantize32 &qp, unsigned int width, unsigned int height,
                          const uint32_t *input, unsigned int in_stride, uint8_t *output, unsigned int out_stride,
-                         const int32_t *row_bias, const int32_t *col_bias);
+                         const int32_t *row_bias, const int32_t *col_bias, unsigned int start_col);
 
 /*
  * Routine (and helpers) to compute row sums needed for offset correction.
@@ -448,7 +782,7 @@ template void requantize_block_32(const ARequantizeLayer32 &qp, unsigned int wid
  */
 namespace {
     struct row_sum_helpers {
-        const ARequantizeLayer32 &qp;
+        const Requantize32 &qp;
 
         /* Load a full 16 byte vector, pairwise accumulate into 'sum' with uadalp or sadalp */
         template<typename T>
@@ -495,10 +829,10 @@ namespace {
                      * We could do 64 adds in the signed case, but that
                      * optimization is not worth the complexity.
                      */
-                     if (i > 0 && ((i & 31) == 0)) {
-                         finalsums[r] = vpadalq_s16(finalsums[r], sums[r]);
-                         sums[r] = vdupq_n_s16(0);
-                     }
+                    if (i > 0 && ((i & 31) == 0)) {
+                        finalsums[r] = vpadalq_s16(finalsums[r], sums[r]);
+                        sums[r] = vdupq_n_s16(0);
+                    }
                     sums[r] = accumulate_16(input + (r * in_stride) + (i * 16), sums[r]);
                 }
             }
@@ -567,12 +901,13 @@ namespace {
 
                     vst1q_s32(row_bias, t0);
                     break;
+
                 default:
-                    break;
+                    UNREACHABLE("Impossible.");
             }
         }
 
-        row_sum_helpers(const ARequantizeLayer32 &qp) : qp(qp) { }
+        row_sum_helpers(const Requantize32 &qp) : qp(qp) { }
     };
 
     template<>
@@ -613,8 +948,14 @@ namespace {
 }
 
 template<typename T>
-void compute_row_sums(const ARequantizeLayer32 &qp, unsigned int width, unsigned int height,
+void compute_row_sums(const Requantize32 &qp, unsigned int width, unsigned int height,
                       const T *input, unsigned int in_stride, int32_t *row_bias) {
+    /* If the 'b' offset is zero, just skip this entirely. */
+    if (qp.b_offset == 0) {
+        memset(row_bias, 0, height * sizeof(int32_t));
+        return;
+    }
+
     row_sum_helpers thehelpers(qp);
 
     const int32x4_t offset_mul = vdupq_n_s32(-qp.b_offset);
@@ -664,8 +1005,8 @@ void compute_row_sums(const ARequantizeLayer32 &qp, unsigned int width, unsigned
 }
 
 /* Instantiate the two versions for uint8_t and int8_t. */
-template void compute_row_sums(const ARequantizeLayer32 &, unsigned int, unsigned int, const int8_t *, unsigned int, int32_t *);
-template void compute_row_sums(const ARequantizeLayer32 &, unsigned int, unsigned int, const uint8_t *, unsigned int, int32_t *);
+template void compute_row_sums(const Requantize32 &, unsigned int, unsigned int, const int8_t *, unsigned int, int32_t *);
+template void compute_row_sums(const Requantize32 &, unsigned int, unsigned int, const uint8_t *, unsigned int, int32_t *);
 
 template<unsigned int active_rows, typename T>
 inline void add_block(const T *input, unsigned int in_stride, int32_t *output);
@@ -736,47 +1077,50 @@ inline void add_block(const int8_t *input, unsigned int in_stride, int32_t *outp
     }
 }
 
-
 /* "first_col" parameter is used to offset the read into the qp.bias array,
  * in cases where we are not computing the first columns of the output (i.e.
  * in multithreaded cases where we divide columns across threads) */
 template<typename T>
-void compute_col_sums(const ARequantizeLayer32 &qp, unsigned int width, unsigned int height, const T *input, unsigned int in_stride, int32_t *col_bias, unsigned int depth, unsigned int first_col) {
-    memset(reinterpret_cast<void *>(col_bias), 0, width * sizeof(int32_t));
+void compute_col_sums(const Requantize32 &qp, unsigned int width, unsigned int height, const T *input, unsigned int in_stride, int32_t *col_bias, unsigned int depth, unsigned int multi, unsigned int first_col) {
+    /* Only actually add up the columns if a_offset is non-zero. */
+    if (qp.a_offset != 0) {
+        memset(reinterpret_cast<void *>(col_bias), 0, width * sizeof(int32_t));
 
-    for (unsigned int row=0; row<height; row+=4) {
-        unsigned int numrows=std::min(height-row, 4u);
+        for (unsigned int row=0; row<height; row+=4) {
+            unsigned int numrows=std::min(height-row, 4u);
 
-        for (unsigned int col=0; col<width; col+=16) {
-            unsigned int numcols=std::min(width-col, 16u);
+            for (unsigned int col=0; col<width; col+=16) {
+                unsigned int numcols=std::min(width-col, 16u);
 
-            if (numcols==16) {
-                switch(numrows) {
-                    case 1:
-                        add_block<1>(input + row * in_stride + col, in_stride, col_bias + col);
-                        break;
+                if (numcols==16) {
+                    switch(numrows) {
+                        case 1:
+                            add_block<1>(input + row * in_stride + col, in_stride, col_bias + col);
+                            break;
 
-                    case 2:
-                        add_block<2>(input + row * in_stride + col, in_stride, col_bias + col);
-                        break;
+                        case 2:
+                            add_block<2>(input + row * in_stride + col, in_stride, col_bias + col);
+                            break;
 
-                    case 3:
-                        add_block<3>(input + row * in_stride + col, in_stride, col_bias + col);
-                        break;
+                        case 3:
+                            add_block<3>(input + row * in_stride + col, in_stride, col_bias + col);
+                            break;
 
-                    case 4:
-                        add_block<4>(input + row * in_stride + col, in_stride, col_bias + col);
-                        break;
-                    default:
-                        break;
-                }
-            } else {
-                for (; col<width; col++) {
-                    int32_t sum=0;
-                    for (unsigned int r=0; r<numrows; r++) {
-                        sum += input[(row + r)*in_stride + col];
+                        case 4:
+                            add_block<4>(input + row * in_stride + col, in_stride, col_bias + col);
+                            break;
+
+                        default:
+                            UNREACHABLE("Impossible.");
                     }
-                    col_bias[col] += sum;
+                } else {
+                    for (; col<width; col++) {
+                        int32_t sum=0;
+                        for (unsigned int r=0; r<numrows; r++) {
+                            sum += input[(row + r)*in_stride + col];
+                        }
+                        col_bias[col] += sum;
+                    }
                 }
             }
         }
@@ -788,15 +1132,15 @@ void compute_col_sums(const ARequantizeLayer32 &qp, unsigned int width, unsigned
         result = (qp.a_offset * qp.b_offset * depth) - (result * qp.a_offset);
 
         if (qp.bias != nullptr) {
-            result += qp.bias[col + first_col];
+            result += qp.bias[multi * qp.bias_multi_stride + col + first_col];
         }
 
         col_bias[col] = result;
     }
 }
 
-template void compute_col_sums(const ARequantizeLayer32 &qp, unsigned int width, unsigned int height, const int8_t *input, unsigned int in_stride, int32_t *col_bias, unsigned int depth, unsigned int first_col);
-template void compute_col_sums(const ARequantizeLayer32 &qp, unsigned int width, unsigned int height, const uint8_t *input, unsigned int in_stride, int32_t *col_bias, unsigned int depth, unsigned int first_col);
+template void compute_col_sums(const Requantize32 &qp, unsigned int width, unsigned int height, const int8_t *input, unsigned int in_stride, int32_t *col_bias, unsigned int depth, unsigned int multi, unsigned int first_col);
+template void compute_col_sums(const Requantize32 &qp, unsigned int width, unsigned int height, const uint8_t *input, unsigned int in_stride, int32_t *col_bias, unsigned int depth, unsigned int multi, unsigned int first_col);
 
 } // namespace arm_gemm
 

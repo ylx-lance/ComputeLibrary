@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_OFFSETMEMORYPOOL_H__
-#define __ARM_COMPUTE_OFFSETMEMORYPOOL_H__
+#ifndef ARM_COMPUTE_OFFSETMEMORYPOOL_H
+#define ARM_COMPUTE_OFFSETMEMORYPOOL_H
 
 #include "arm_compute/runtime/IMemoryPool.h"
 
@@ -58,6 +58,11 @@ public:
     OffsetMemoryPool(OffsetMemoryPool &&) = default;
     /** Allow instances of this class to be move assigned */
     OffsetMemoryPool &operator=(OffsetMemoryPool &&) = default;
+    /** Accessor to the pool internal configuration meta-data
+     *
+     * @return Pool internal configuration meta-data
+     */
+    const BlobInfo &info() const;
 
     // Inherited methods overridden:
     void acquire(MemoryMappings &handles) override;
@@ -71,4 +76,4 @@ private:
     BlobInfo                       _blob_info; /**< Information for the blob to allocate */
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_OFFSETMEMORYPOOL_H__ */
+#endif /* ARM_COMPUTE_OFFSETMEMORYPOOL_H */

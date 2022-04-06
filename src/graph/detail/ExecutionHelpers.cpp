@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,6 +27,7 @@
 #include "arm_compute/graph/GraphContext.h"
 #include "arm_compute/graph/GraphManager.h"
 #include "arm_compute/graph/Tensor.h"
+#include "arm_compute/graph/Utils.h"
 #include "arm_compute/graph/backends/BackendRegistry.h"
 
 namespace arm_compute
@@ -147,7 +148,7 @@ ExecutionWorkload configure_all_nodes(Graph &g, GraphContext &ctx, const std::ve
             Target                     assigned_target = node->assigned_target();
             backends::IDeviceBackend &backend         = backends::BackendRegistry::get().get_backend(assigned_target);
             std::unique_ptr<IFunction> func            = backend.configure_node(*node, ctx);
-            if(func != nullptr)
+            if(func != nullptr || is_utility_node(node))
             {
                 workload.tasks.emplace_back(ExecutionTask(std::move(func), node));
             }
@@ -195,9 +196,12 @@ void call_all_const_node_accessors(Graph &g)
 
     for(auto &node : nodes)
     {
-        if(node != nullptr && node->type() == NodeType::Const)
+        if(node != nullptr && node->type() == NodeType::Const && node->num_outputs())
         {
-            call_tensor_accessor(node->output(0));
+            if(!node->output(0)->bound_edges().empty())
+            {
+                call_tensor_accessor(node->output(0));
+            }
         }
     }
 }
@@ -260,6 +264,8 @@ bool call_all_output_node_accessors(ExecutionWorkload &workload)
         bool valid_output = (output_tensor != nullptr) && output_tensor->call_accessor();
         is_valid          = is_valid && valid_output;
     });
+
+    sync_backends();
 
     return is_valid;
 }

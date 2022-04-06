@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,10 +29,11 @@
 #include "arm_compute/graph/INode.h"
 #include "arm_compute/graph/Tensor.h"
 #include "arm_compute/graph/Types.h"
+#include "arm_compute/graph/Utils.h"
 #include "arm_compute/graph/backends/BackendRegistry.h"
 
 #include "arm_compute/core/ITensor.h"
-#include "arm_compute/core/utils/misc/Cast.h"
+#include "support/Cast.h"
 
 #include <algorithm>
 #include <map>
@@ -121,7 +122,7 @@ TaskHandles get_transition_handles(GraphContext                    &ctx,
                                    ExecutionTask                   &task,
                                    const std::set<ITensorHandle *> &const_tensors)
 {
-    ARM_COMPUTE_ERROR_ON(task.node == nullptr || task.task == nullptr);
+    ARM_COMPUTE_ERROR_ON(task.node == nullptr || (task.task == nullptr && !is_utility_node(task.node)));
     INode &node = *task.node;
 
     TaskHandles transition_handles;

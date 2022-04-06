@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,6 +28,8 @@
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+
+#include "src/common/utils/Log.h"
 
 namespace arm_compute
 {
@@ -61,6 +63,12 @@ CLUnstack::CLUnstack() // NOLINT
 
 void CLUnstack::configure(const ICLTensor *input, const std::vector<ICLTensor *> &output_vector, int axis)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, output_vector, axis);
+}
+
+void CLUnstack::configure(const CLCompileContext &compile_context, const ICLTensor *input, const std::vector<ICLTensor *> &output_vector, int axis)
+{
+    ARM_COMPUTE_LOG_PARAMS(input, output_vector, axis);
     std::vector<ITensorInfo *> outputs_vector_info(output_vector.size());
     std::transform(output_vector.begin(), output_vector.end(), outputs_vector_info.begin(), [](ICLTensor * t)
     {
@@ -83,7 +91,7 @@ void CLUnstack::configure(const ICLTensor *input, const std::vector<ICLTensor *>
     {
         // Adjusts start and end coordinates to take a 2D slice at a time
         slice_start.set(axis_u, slice);
-        _strided_slice_vector[slice].configure(input, output_vector[slice], slice_start, Coordinates(), BiStrides(), 0, slice_end_mask, (1 << axis_u));
+        _strided_slice_vector[slice].configure(compile_context, input, output_vector[slice], slice_start, Coordinates(), BiStrides(), 0, slice_end_mask, (1 << axis_u));
     }
 }
 

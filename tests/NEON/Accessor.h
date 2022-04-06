@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_ACCESSOR_H__
-#define __ARM_COMPUTE_TEST_ACCESSOR_H__
+#ifndef ARM_COMPUTE_TEST_ACCESSOR_H
+#define ARM_COMPUTE_TEST_ACCESSOR_H
 
 #include "arm_compute/runtime/Tensor.h"
 #include "tests/IAccessor.h"
@@ -47,8 +47,6 @@ public:
     Accessor &operator=(const Accessor &) = delete;
     /** Allow instances of this class to be move constructed */
     Accessor(Accessor &&) = default;
-    /** Allow instances of this class to be moved */
-    Accessor &operator=(Accessor &&) = default;
 
     /** Get the tensor data.
      *
@@ -154,4 +152,4 @@ inline void *Accessor::operator()(const Coordinates &coord)
 }
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_ACCESSOR_H__ */
+#endif /* ARM_COMPUTE_TEST_ACCESSOR_H */

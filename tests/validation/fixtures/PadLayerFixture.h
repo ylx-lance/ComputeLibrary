@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -94,22 +94,21 @@ protected:
         FunctionType padding;
         padding.configure(&src, &dst, paddings, const_value, mode);
 
-        ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(dst.info()->is_resizable());
 
         // Allocate tensors
         src.allocator()->allocate();
         dst.allocator()->allocate();
 
-        ARM_COMPUTE_EXPECT(!src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(!src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!dst.info()->is_resizable());
 
         // Fill tensors
         fill(AccessorType(src), 0);
 
         // Compute function
         padding.run();
-
         return dst;
     }
 

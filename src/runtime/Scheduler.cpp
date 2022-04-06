@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,6 +24,7 @@
 #include "arm_compute/runtime/Scheduler.h"
 
 #include "arm_compute/core/Error.h"
+
 #if ARM_COMPUTE_CPP_SCHEDULER
 #include "arm_compute/runtime/CPP/CPPScheduler.h"
 #endif /* ARM_COMPUTE_CPP_SCHEDULER */
@@ -46,6 +47,27 @@ Scheduler::Type Scheduler::_scheduler_type = Scheduler::Type::CPP;
 Scheduler::Type Scheduler::_scheduler_type = Scheduler::Type::ST;
 #endif /* ARM_COMPUTE_*_SCHEDULER */
 
+std::shared_ptr<IScheduler> Scheduler::_custom_scheduler = nullptr;
+
+namespace
+{
+std::map<Scheduler::Type, std::unique_ptr<IScheduler>> init()
+{
+    std::map<Scheduler::Type, std::unique_ptr<IScheduler>> m;
+    m[Scheduler::Type::ST] = std::make_unique<SingleThreadScheduler>();
+#if defined(ARM_COMPUTE_CPP_SCHEDULER)
+    m[Scheduler::Type::CPP] = std::make_unique<CPPScheduler>();
+#endif // defined(ARM_COMPUTE_CPP_SCHEDULER)
+#if defined(ARM_COMPUTE_OPENMP_SCHEDULER)
+    m[Scheduler::Type::OMP] = std::make_unique<OMPScheduler>();
+#endif // defined(ARM_COMPUTE_OPENMP_SCHEDULER)
+
+    return m;
+}
+} // namespace
+
+std::map<Scheduler::Type, std::unique_ptr<IScheduler>> Scheduler::_schedulers{};
+
 void Scheduler::set(Type t)
 {
     ARM_COMPUTE_ERROR_ON(!Scheduler::is_available(t));
@@ -54,37 +76,13 @@ void Scheduler::set(Type t)
 
 bool Scheduler::is_available(Type t)
 {
-    switch(t)
+    if(t == Type::CUSTOM)
     {
-        case Type::ST:
-        {
-            return true;
-        }
-        case Type::CPP:
-        {
-#if ARM_COMPUTE_CPP_SCHEDULER
-            return true;
-#else  /* ARM_COMPUTE_CPP_SCHEDULER */
-            return false;
-#endif /* ARM_COMPUTE_CPP_SCHEDULER */
-        }
-        case Type::OMP:
-        {
-#if ARM_COMPUTE_OPENMP_SCHEDULER
-            return true;
-#else  /* ARM_COMPUTE_OPENMP_SCHEDULER */
-            return false;
-#endif /* ARM_COMPUTE_OPENMP_SCHEDULER */
-        }
-        case Type::CUSTOM:
-        {
-            return _custom_scheduler != nullptr;
-        }
-        default:
-        {
-            ARM_COMPUTE_ERROR("Invalid Scheduler type");
-            return false;
-        }
+        return _custom_scheduler != nullptr;
+    }
+    else
+    {
+        return _schedulers.find(t) != _schedulers.end();
     }
 }
 
@@ -95,52 +93,35 @@ Scheduler::Type Scheduler::get_type()
 
 IScheduler &Scheduler::get()
 {
-    switch(_scheduler_type)
+    if(_scheduler_type == Type::CUSTOM)
     {
-        case Type::ST:
+        if(_custom_scheduler == nullptr)
         {
-            return SingleThreadScheduler::get();
+            ARM_COMPUTE_ERROR("No custom scheduler has been setup. Call set(std::shared_ptr<IScheduler> &scheduler) before Scheduler::get()");
         }
-        case Type::CPP:
+        else
         {
-#if ARM_COMPUTE_CPP_SCHEDULER
-            return CPPScheduler::get();
-#else  /* ARM_COMPUTE_CPP_SCHEDULER */
-            ARM_COMPUTE_ERROR("Recompile with cppthreads=1 to use C++11 scheduler.");
-#endif /* ARM_COMPUTE_CPP_SCHEDULER */
-            break;
-        }
-        case Type::OMP:
-        {
-#if ARM_COMPUTE_OPENMP_SCHEDULER
-            return OMPScheduler::get();
-#else  /* ARM_COMPUTE_OPENMP_SCHEDULER */
-            ARM_COMPUTE_ERROR("Recompile with openmp=1 to use openmp scheduler.");
-#endif /* ARM_COMPUTE_OPENMP_SCHEDULER */
-            break;
-        }
-        case Type::CUSTOM:
-        {
-            if(_custom_scheduler == nullptr)
-            {
-                ARM_COMPUTE_ERROR("No custom scheduler has been setup. Call set(std::shared_ptr<IScheduler> &scheduler) before Scheduler::get()");
-            }
-            else
-            {
-                return *_custom_scheduler;
-            }
-            break;
-        }
-        default:
-        {
-            ARM_COMPUTE_ERROR("Invalid Scheduler type");
-            break;
+            return *_custom_scheduler;
         }
     }
-    return SingleThreadScheduler::get();
-}
+    else
+    {
+        if(_schedulers.empty())
+        {
+            _schedulers = init();
+        }
 
-std::shared_ptr<IScheduler> Scheduler::_custom_scheduler = nullptr;
+        auto it = _schedulers.find(_scheduler_type);
+        if(it != _schedulers.end())
+        {
+            return *it->second;
+        }
+        else
+        {
+            ARM_COMPUTE_ERROR("Invalid Scheduler type");
+        }
+    }
+}
 
 void Scheduler::set(std::shared_ptr<IScheduler> scheduler)
 {

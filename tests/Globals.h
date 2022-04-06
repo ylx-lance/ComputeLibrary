@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,10 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_GLOBALS_H__
-#define __ARM_COMPUTE_TEST_GLOBALS_H__
+#ifndef ARM_COMPUTE_TEST_GLOBALS_H
+#define ARM_COMPUTE_TEST_GLOBALS_H
 
 #include "tests/AssetsLibrary.h"
+#include "tests/framework/ParametersLibrary.h"
 
 #include <memory>
 
@@ -32,7 +33,9 @@ namespace arm_compute
 {
 namespace test
 {
-extern std::unique_ptr<AssetsLibrary> library;
+extern std::unique_ptr<AssetsLibrary>     library;
+extern std::unique_ptr<AssetsLibrary>     fixed_library;
+extern std::unique_ptr<ParametersLibrary> parameters;
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_GLOBALS_H__ */
+#endif /* ARM_COMPUTE_TEST_GLOBALS_H */

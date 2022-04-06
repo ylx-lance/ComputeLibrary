@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -71,18 +71,18 @@ protected:
         FunctionType comp_op;
         comp_op.configure(&ref_src1, &ref_src2, &dst, op);
 
-        ARM_COMPUTE_EXPECT(ref_src1.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(ref_src2.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(ref_src1.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(ref_src2.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(dst.info()->is_resizable());
 
         // Allocate tensors
         ref_src1.allocator()->allocate();
         ref_src2.allocator()->allocate();
         dst.allocator()->allocate();
 
-        ARM_COMPUTE_EXPECT(!ref_src1.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!ref_src2.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(!ref_src1.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!ref_src2.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!dst.info()->is_resizable());
 
         // Fill tensors
         fill(AccessorType(ref_src1), 0);
@@ -144,6 +144,17 @@ public:
 
     {
         ComparisonValidationGenericFixture<TensorType, AccessorType, FunctionType, T>::setup(op, shape, shape, data_type, qinfo0, qinfo1);
+    }
+};
+
+template <typename TensorType, typename AccessorType, typename FunctionType, typename T>
+class ComparisonQuantizedBroadcastValidationFixture : public ComparisonValidationGenericFixture<TensorType, AccessorType, FunctionType, T>
+{
+public:
+    template <typename...>
+    void setup(ComparisonOperation op, const TensorShape &shape0, const TensorShape &shape1, DataType data_type, QuantizationInfo qinfo0, QuantizationInfo qinfo1)
+    {
+        ComparisonValidationGenericFixture<TensorType, AccessorType, FunctionType, T>::setup(op, shape0, shape1, data_type, qinfo0, qinfo1);
     }
 };
 } // namespace validation

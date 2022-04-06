@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,7 +25,6 @@
 #include "arm_compute/runtime/MemoryRegion.h"
 
 #include "arm_compute/core/Error.h"
-#include "support/ToolchainSupport.h"
 
 #include <cstddef>
 
@@ -44,5 +43,5 @@ void Allocator::free(void *ptr)
 
 std::unique_ptr<IMemoryRegion> Allocator::make_region(size_t size, size_t alignment)
 {
-    return arm_compute::support::cpp14::make_unique<MemoryRegion>(size, alignment);
+    return std::make_unique<MemoryRegion>(size, alignment);
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,23 +21,21 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NESPACETODEPTHLAYER_H__
-#define __ARM_COMPUTE_NESPACETODEPTHLAYER_H__
+#ifndef ARM_COMPUTE_NESPACETODEPTHLAYER_H
+#define ARM_COMPUTE_NESPACETODEPTHLAYER_H
 
+#include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/IFunction.h"
 
-#include "arm_compute/core/NEON/kernels/NEMemsetKernel.h"
-#include "arm_compute/core/NEON/kernels/NESpaceToDepthLayerKernel.h"
-#include "arm_compute/core/Types.h"
+#include <memory>
 
 namespace arm_compute
 {
 class ITensor;
+class ITensorInfo;
+class NESpaceToDepthLayerKernel;
 
-/** This function calls the following NEON kernels/functions:
- *
- *  -# @ref NESpaceToDepthLayerKernel
- */
+/** Basic function to run @ref NESpaceToDepthLayerKernel. */
 class NESpaceToDepthLayer : public IFunction
 {
 public:
@@ -52,17 +50,26 @@ public:
     /** Allow instances of this class to be moved */
     NESpaceToDepthLayer &operator=(NESpaceToDepthLayer &&) = default;
     /** Default destructor */
-    virtual ~NESpaceToDepthLayer() = default;
+    ~NESpaceToDepthLayer();
     /** Set the input and output tensors.
      *
-     * @param[in]  input       Tensor input. Supported tensor rank: 4. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32.
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |All            |All            |
+     *
+     * @param[in]  input       Tensor input. Supported tensor rank: 4. Data types supported: All.
      * @param[out] output      Tensor output. Data types supported: same as @p input
      * @param[in]  block_shape Block shape value
      */
     void configure(const ITensor *input, ITensor *output, int32_t block_shape);
     /** Static function to check if given info will lead to a valid configuration of @ref NESpaceToDepthLayer (Static block shape and paddings)
      *
-     * @param[in] input       Tensor input info. Supported tensor rank: 4. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32.
+     * @param[in] input       Tensor input info. Supported tensor rank: 4. Data types supported: All.
      * @param[in] output      Tensor output info. Data types supported: same as @p input
      * @param[in] block_shape Block shape value
      *
@@ -74,7 +81,7 @@ public:
     void run() override;
 
 private:
-    NESpaceToDepthLayerKernel _space_to_depth_kernel; /**< SpaceToDepth kernel to run */
+    std::unique_ptr<NESpaceToDepthLayerKernel> _space_to_depth_kernel; /**< SpaceToDepth kernel to run */
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_NESPACETODEPTHLAYER_H__ */
+#endif /* ARM_COMPUTE_NESPACETODEPTHLAYER_H */

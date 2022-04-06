@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,6 +26,7 @@
 
 #include "arm_compute/core/TensorShape.h"
 #include "arm_compute/core/Types.h"
+#include "arm_compute/core/utils/misc/ShapeCalculator.h"
 #include "arm_compute/runtime/Tensor.h"
 #include "tests/AssetsLibrary.h"
 #include "tests/Globals.h"
@@ -58,10 +59,15 @@ protected:
     {
         switch(tensor.data_type())
         {
-            case DataType::F32:
             case DataType::F16:
             {
-                std::uniform_real_distribution<> distribution(-1.0f, 1.0f);
+                arm_compute::utils::uniform_real_distribution_16bit<half> distribution{ -1.0f, 1.0f };
+                library->fill(tensor, distribution, 0);
+                break;
+            }
+            case DataType::F32:
+            {
+                std::uniform_real_distribution<float> distribution(-1.0f, 1.0f);
                 library->fill(tensor, distribution, 0);
                 break;
             }
@@ -75,6 +81,14 @@ protected:
             {
                 std::pair<int, int> bounds = get_quantized_bounds(tensor.quantization_info(), -1.0f, 1.0f);
                 std::uniform_int_distribution<uint8_t> distribution(bounds.first, bounds.second);
+
+                library->fill(tensor, distribution, 0);
+                break;
+            }
+            case DataType::QASYMM8_SIGNED:
+            {
+                std::pair<int, int> bounds = get_quantized_qasymm8_signed_bounds(tensor.quantization_info(), -1.0f, 1.0f);
+                std::uniform_int_distribution<int8_t> distribution(bounds.first, bounds.second);
 
                 library->fill(tensor, distribution, 0);
                 break;
@@ -94,15 +108,15 @@ protected:
         FunctionType arg_min_max_layer;
         arg_min_max_layer.configure(&src, axis, &dst, op);
 
-        ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(dst.info()->is_resizable());
 
         // Allocate tensors
         src.allocator()->allocate();
         dst.allocator()->allocate();
 
-        ARM_COMPUTE_EXPECT(!src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(!src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!dst.info()->is_resizable());
 
         // Fill tensors
         fill(AccessorType(src));
@@ -113,7 +127,7 @@ protected:
         return dst;
     }
 
-    SimpleTensor<uint32_t> compute_reference(TensorShape &src_shape, DataType data_type, int axis, ReductionOperation op, QuantizationInfo q_info)
+    SimpleTensor<int32_t> compute_reference(TensorShape &src_shape, DataType data_type, int axis, ReductionOperation op, QuantizationInfo q_info)
     {
         // Create reference
         SimpleTensor<T> src{ src_shape, data_type, 1, q_info };
@@ -121,13 +135,12 @@ protected:
         // Fill reference
         fill(src);
 
-        TensorShape output_shape = src_shape;
-        output_shape.set(axis, 1);
-        return reference::reduction_operation<T, uint32_t>(src, output_shape, axis, op);
+        TensorShape output_shape = arm_compute::misc::shape_calculator::compute_reduced_shape(src_shape, axis, false);
+        return reference::reduction_operation<T, int32_t>(src, output_shape, axis, op);
     }
 
-    TensorType             _target{};
-    SimpleTensor<uint32_t> _reference{};
+    TensorType            _target{};
+    SimpleTensor<int32_t> _reference{};
 };
 
 template <typename TensorType, typename AccessorType, typename FunctionType, typename T>

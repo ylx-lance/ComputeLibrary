@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -64,7 +64,7 @@ OT reduce_operation(const T *ptr, int reduce_elements, ReductionOperation op, in
 
     if(std::is_integral<type>::value)
     {
-        auto int_res = static_cast<uint32_t>(res);
+        auto int_res = static_cast<int32_t>(res);
         for(int i = 0; i < reduce_elements; ++i)
         {
             auto elem = *(ptr + stride * i);
@@ -101,7 +101,7 @@ OT reduce_operation(const T *ptr, int reduce_elements, ReductionOperation op, in
         {
             int_res /= reduce_elements;
         }
-        res = saturate_cast<type>(int_res);
+        res = static_cast<type>(int_res);
     }
     else
     {
@@ -179,7 +179,7 @@ SimpleTensor<OT> compute_reduction_operation(const SimpleTensor<T> &src, const T
 {
     // Create reference
     const bool         is_arg_min_max   = (op == ReductionOperation::ARG_IDX_MIN || op == ReductionOperation::ARG_IDX_MAX);
-    DataType           output_data_type = is_arg_min_max ? DataType::U32 : src.data_type();
+    DataType           output_data_type = is_arg_min_max ? DataType::S32 : src.data_type();
     SimpleTensor<OT>   dst{ dst_shape, output_data_type, 1, src.quantization_info() };
     const unsigned int src_width    = src.shape().x();
     const unsigned int src_height   = src.shape().y();
@@ -269,19 +269,28 @@ SimpleTensor<OT> compute_reduction_operation(const SimpleTensor<T> &src, const T
 }
 
 template <typename T, typename OT>
-SimpleTensor<OT> reduction_operation(const SimpleTensor<T> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op)
+SimpleTensor<OT> reduction_operation(const SimpleTensor<T> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op, QuantizationInfo quantization_info_output)
 {
+    ARM_COMPUTE_UNUSED(quantization_info_output);
     return compute_reduction_operation<T, OT>(src, dst_shape, axis, op);
 }
 
 template <>
-SimpleTensor<uint8_t> reduction_operation(const SimpleTensor<uint8_t> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op)
+SimpleTensor<uint8_t> reduction_operation(const SimpleTensor<uint8_t> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op, QuantizationInfo quantization_info_output)
 {
-    if(src.data_type() == DataType::QASYMM8 && op != ReductionOperation::MEAN_SUM)
+    if(src.data_type() == DataType::QASYMM8)
     {
-        SimpleTensor<float> src_f = convert_from_asymmetric(src);
-        SimpleTensor<float> dst_f = reference::reduction_operation<float, float>(src_f, dst_shape, axis, op);
-        return convert_to_asymmetric(dst_f, src.quantization_info());
+        // If the operation is MEAN_SUM, we can directly use the uint8 implementation without taking into account scale and offset
+        if(op == ReductionOperation::MEAN_SUM && src.quantization_info() == quantization_info_output)
+        {
+            return compute_reduction_operation<uint8_t, uint8_t>(src, dst_shape, axis, op);
+        }
+        else
+        {
+            SimpleTensor<float> src_f = convert_from_asymmetric(src);
+            SimpleTensor<float> dst_f = reference::reduction_operation<float, float>(src_f, dst_shape, axis, op);
+            return convert_to_asymmetric<uint8_t>(dst_f, quantization_info_output);
+        }
     }
     else
     {
@@ -289,13 +298,44 @@ SimpleTensor<uint8_t> reduction_operation(const SimpleTensor<uint8_t> &src, cons
     }
 }
 
-template SimpleTensor<float> reduction_operation(const SimpleTensor<float> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op);
-template SimpleTensor<half> reduction_operation(const SimpleTensor<half> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op);
+template <>
+SimpleTensor<int8_t> reduction_operation(const SimpleTensor<int8_t> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op, QuantizationInfo quantization_info_output)
+{
+    if(src.data_type() == DataType::QASYMM8_SIGNED)
+    {
+        // If the operation is MEAN_SUM, we can directly use the int8 implementation without taking into account scale and offset
+        if(op == ReductionOperation::MEAN_SUM && src.quantization_info() == quantization_info_output)
+        {
+            return compute_reduction_operation<int8_t, int8_t>(src, dst_shape, axis, op);
+        }
+        else
+        {
+            SimpleTensor<float> src_f = convert_from_asymmetric(src);
+            SimpleTensor<float> dst_f = reference::reduction_operation<float, float>(src_f, dst_shape, axis, op);
+            return convert_to_asymmetric<int8_t>(dst_f, quantization_info_output);
+        }
+    }
+    else
+    {
+        return compute_reduction_operation<int8_t, int8_t>(src, dst_shape, axis, op);
+    }
+}
 
-template SimpleTensor<uint32_t> reduction_operation(const SimpleTensor<float> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op);
-template SimpleTensor<uint32_t> reduction_operation(const SimpleTensor<int32_t> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op);
-template SimpleTensor<uint32_t> reduction_operation(const SimpleTensor<half> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op);
-template SimpleTensor<uint32_t> reduction_operation(const SimpleTensor<uint8_t> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op);
+template SimpleTensor<float> reduction_operation(const SimpleTensor<float> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op,
+                                                 QuantizationInfo quantization_info_output = QuantizationInfo());
+template SimpleTensor<half> reduction_operation(const SimpleTensor<half> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op,
+                                                QuantizationInfo quantization_info_output = QuantizationInfo());
+
+template SimpleTensor<int32_t> reduction_operation(const SimpleTensor<float> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op,
+                                                   QuantizationInfo quantization_info_output = QuantizationInfo());
+template SimpleTensor<int32_t> reduction_operation(const SimpleTensor<int32_t> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op,
+                                                   QuantizationInfo quantization_info_output = QuantizationInfo());
+template SimpleTensor<int32_t> reduction_operation(const SimpleTensor<half> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op,
+                                                   QuantizationInfo quantization_info_output = QuantizationInfo());
+template SimpleTensor<int32_t> reduction_operation(const SimpleTensor<uint8_t> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op,
+                                                   QuantizationInfo quantization_info_output = QuantizationInfo());
+template SimpleTensor<int32_t> reduction_operation(const SimpleTensor<int8_t> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op,
+                                                   QuantizationInfo quantization_info_output = QuantizationInfo());
 
 } // namespace reference
 } // namespace validation

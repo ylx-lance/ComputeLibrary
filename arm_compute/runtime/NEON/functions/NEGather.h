@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -22,15 +22,17 @@
  * SOFTWARE.
  */
 
-#ifndef __ARM_COMPUTE_NEGATHER_H__
-#define __ARM_COMPUTE_NEGATHER_H__
+#ifndef ARM_COMPUTE_NEGATHER_H
+#define ARM_COMPUTE_NEGATHER_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/NEON/INESimpleFunctionNoBorder.h"
 
 namespace arm_compute
 {
+// Forward declarations
 class ITensor;
+class ITensorInfo;
 
 /** Basic function to run @ref NEGatherKernel */
 class NEGather : public INESimpleFunctionNoBorder
@@ -38,7 +40,15 @@ class NEGather : public INESimpleFunctionNoBorder
 public:
     /** Initialise the kernel's inputs and outputs
      *
-     * @param[in]  input   Source tensor. Supported tensor rank: up to 4. Data type supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |All            |All            |
+     *
+     * @param[in]  input   Source tensor. Supported tensor rank: up to 4. Data type supported: All
      * @param[in]  indices Indices tensor. Supported tensor rank: up to 1. Must be one of the following type: U32/S32. Each value Must be in range [0, input.shape[@p axis])
      * @param[out] output  Destination tensor. Data type supported: Same as @p input
      * @param[in]  axis    (Optional) The axis in @p input to gather @p indices from. Defaults to 0
@@ -47,7 +57,7 @@ public:
 
     /** Static function to check if given info will lead to a valid configuration of @ref NEGatherKernel
      *
-     * @param[in] input   Source tensor info. Supported tensor rank: up to 4. Data type supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32
+     * @param[in] input   Source tensor info. Supported tensor rank: up to 4. Data type supported: All
      * @param[in] indices Indices tensor info. Supported tensor rank: up to 1. Must be one of the following types: U32/S32. Each value Must be in range [0, input.shape[@p axis])
      * @param[in] output  Destination tensor info. Data type supported: Same as @p input
      * @param[in] axis    (Optional) The axis in @p input to gather @p indices from. Defaults to 0
@@ -56,7 +66,6 @@ public:
      */
     static Status validate(const ITensorInfo *input, const ITensorInfo *indices, const ITensorInfo *output, int axis);
 };
-
 } // namespace arm_compute
 
-#endif /* __ARM_COMPUTE_NEGATHER_H__ */
+#endif /* ARM_COMPUTE_NEGATHER_H */

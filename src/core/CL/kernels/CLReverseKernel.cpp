@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,16 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/CL/kernels/CLReverseKernel.h"
+#include "src/core/CL/kernels/CLReverseKernel.h"
 
 #include "arm_compute/core/CL/CLHelpers.h"
 #include "arm_compute/core/CL/CLKernelLibrary.h"
-#include "arm_compute/core/CL/CLValidate.h"
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/TensorInfo.h"
-#include "arm_compute/core/Window.h"
+#include "src/core/CL/CLValidate.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+#include "support/StringSupport.h"
 
 namespace arm_compute
 {
@@ -40,10 +41,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, c
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output, axis);
     ARM_COMPUTE_RETURN_ERROR_ON_F16_UNSUPPORTED(input);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::U8, DataType::S8, DataType::QASYMM8,
-                                                         DataType::U16, DataType::S16,
-                                                         DataType::U32, DataType::S32,
-                                                         DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(axis, 1, DataType::U32);
     ARM_COMPUTE_RETURN_ERROR_ON_MSG(axis->num_dimensions() > 1, "Axis must be a 1D tensor");
     ARM_COMPUTE_RETURN_ERROR_ON_MSG(axis->dimension(0) > 4, "Only up to 4 dimensions can be reversed");
@@ -63,11 +61,18 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, c
 CLReverseKernel::CLReverseKernel()
     : _input(nullptr), _output(nullptr), _axis(nullptr)
 {
+    _type = CLKernelType::ELEMENTWISE;
 }
 
 void CLReverseKernel::configure(const ICLTensor *input, ICLTensor *output, const ICLTensor *axis)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, axis);
+}
+
+void CLReverseKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output, const ICLTensor *axis)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output, axis);
+    auto padding_info = get_padding_info({ input, output, axis });
 
     _input  = input;
     _output = output;
@@ -81,23 +86,10 @@ void CLReverseKernel::configure(const ICLTensor *input, ICLTensor *output, const
     // Set kernel build options
     CLBuildOptions build_opts;
     build_opts.add_option("-DNUM_REVERSE_DIMS=" + support::cpp11::to_string(axis->info()->dimension(0)));
-    switch(input->info()->element_size())
-    {
-        case 1:
-            build_opts.add_option("-DDATA_TYPE=uchar");
-            break;
-        case 2:
-            build_opts.add_option("-DDATA_TYPE=ushort");
-            break;
-        case 4:
-            build_opts.add_option("-DDATA_TYPE=uint");
-            break;
-        default:
-            ARM_COMPUTE_ERROR("Data type not supported");
-    }
+    build_opts.add_option("-DDATA_TYPE=" + get_cl_unsigned_type_from_element_size(input->info()->element_size()));
 
     // Create kernel
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel("reverse", build_opts.options()));
+    _kernel = create_kernel(compile_context, "reverse", build_opts.options());
 
     // Set static kernel arguments
     unsigned int idx = 2 * num_arguments_per_4D_tensor() + num_arguments_per_1D_tensor();
@@ -119,6 +111,7 @@ void CLReverseKernel::configure(const ICLTensor *input, ICLTensor *output, const
     _config_id += support::cpp11::to_string(input->info()->dimension(1));
     _config_id += "_";
     _config_id += support::cpp11::to_string(input->info()->dimension(2));
+    ARM_COMPUTE_ERROR_ON(has_padding_changed(padding_info));
 }
 
 Status CLReverseKernel::validate(const ITensorInfo *input, const ITensorInfo *output, const ITensorInfo *axis)

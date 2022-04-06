@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NEGEMMLOWPOUTPUTSTAGE_H__
-#define __ARM_COMPUTE_NEGEMMLOWPOUTPUTSTAGE_H__
+#ifndef ARM_COMPUTE_NEGEMMLOWPOUTPUTSTAGE_H
+#define ARM_COMPUTE_NEGEMMLOWPOUTPUTSTAGE_H
 
-#include "arm_compute/runtime/NEON/INESimpleFunctionNoBorder.h"
+#include "arm_compute/core/Types.h"
+#include "arm_compute/runtime/IFunction.h"
 
-/** This file contains all available output stages for GEMMLowp on NEON.
+/** This file contains all available output stages for GEMMLowp.
  *
  *  In gemmlowp, the "output stage" is the process that takes a final int32 accumulator value (the output of @ref NEGEMMLowpMatrixMultiplyCore),
  *  and processes it to obtain the final ASYMM8 value.
@@ -37,173 +38,65 @@
 namespace arm_compute
 {
 class ITensor;
-
-/** Basic function to execute NEGEMMLowpQuantizeDownInt32ToUint8Scale on NEON.
+class ITensorInfo;
+/** Basic function to execute GEMMLowpQuantizeDown kernels.
  *
- *  NEGEMMLowpQuantizeDownInt32ToUint8Scale depends on 3 parameters: result_offset, result_mult_int, result_shift
- *  The final result is:
+ *  This function calls the following operators:
  *
- *  ((input[i][k] + result_offset) * result_mult_int) >> result_shift
- *
- * In case the bias tensor is provided, the final result is:
- *
- *  ((input[i][k] + bias[k] + result_offset) * result_mult_int) >> result_shift
- *
- *  This function calls the following NEON kernels:
- *
- * -# @ref NEGEMMLowpQuantizeDownInt32ToUint8ScaleKernel
- *
- * @note The function accepts also 2 optional input arguments (min and max) which can be used to implement "rectified linear unit" activation functions
- *       after the result is shifted right by result_shift
+ * -# @ref cpu::CpuGemmLowpOutputStage
 */
-class NEGEMMLowpQuantizeDownInt32ToUint8Scale : public INESimpleFunctionNoBorder
+class NEGEMMLowpOutputStage : public IFunction
 {
 public:
+    /** Constructor */
+    NEGEMMLowpOutputStage();
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEGEMMLowpOutputStage(const NEGEMMLowpOutputStage &) = delete;
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEGEMMLowpOutputStage &operator=(const NEGEMMLowpOutputStage &) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NEGEMMLowpOutputStage(NEGEMMLowpOutputStage &&) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NEGEMMLowpOutputStage &operator=(NEGEMMLowpOutputStage &&) = delete;
+    /** Default destructor */
+    ~NEGEMMLowpOutputStage();
     /** Initialise the kernel's inputs, output
      *
-     * @param[in]  input           Input tensor. It is the output of @ref NEGEMMLowpMatrixMultiplyCore function. Data type supported: S32
-     * @param[in]  bias            Biases tensor. Only shared biases supported and it can be a nullptr if the addition of biases is not required.
-     *                             Biases are 1D tensor with dimensions [OFM]. Data type supported: Same as @p input.
-     * @param[out] output          Output tensor. Data type supported: Data type supported: QASYMM8
-     * @param[in]  result_offset   Offset to be added to each element of the input matrix
-     * @param[in]  result_mult_int Value to be multiplied to each element of the input matrix when once the result_offset has been add
-     * @param[in]  result_shift    Number of bits to shift right the result before converting back to QASYMM8
-     * @param[in]  min             (Optional) Min value used to saturate down the output result before converting back to QASYMM8
-     * @param[in]  max             (Optional) Max value used to saturate up the output result before converting back to QASYMM8,
-     *                             Along with @p min, this value can be used to implement "rectified linear unit" activation functions
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src0           |src1          |dst           |
+     * |:--------------|:-------------|:-------------|
+     * |S32            |S32           |QASYMM8       |
+     * |S32            |S32           |QASYMM8_SIGNED|
+     * |S32            |S32           |QSYMM16       |
+     *
+     * @param[in]  input  Input tensor. Data type supported: S32
+     * @param[in]  bias   Biases tensor. Only shared biases supported and it can be a nullptr if the biases addition is not required.
+     *                    Biases are 1D tensor with dimensions [OFM]. Data type supported: Same as @p input.
+     * @param[out] output Output tensor. Data type supported: Data type supported: QASYMM8/QASYMM8_SIGNED/QSYMM16
+     * @param[in]  info   GEMMLowp output stage metadata.
      */
-    void configure(const ITensor *input, const ITensor *bias, ITensor *output, int result_offset, int result_mult_int, int result_shift, int min = 0, int max = 0);
-    /** Static function to check if given info will lead to a valid configuration of @ref NEGEMMLowpQuantizeDownInt32ToUint8Scale
-     *
-     * @param[in] input  Input tensor. It is the output of @ref NEGEMMLowpMatrixMultiplyCore function. Data type supported: S32
-     * @param[in] bias   Biases tensor. Only shared biases supported and it can be a nullptr if the addition of biases is not required.
-     *                   Biases are 1D tensor with dimensions [OFM]. Data type supported: Same as @p input.
-     * @param[in] output Output tensor. Data type supported: Data type supported: QASYMM8
-     * @param[in] min    (Optional) Min value used to saturate down the output result before converting back to QASYMM8
-     * @param[in] max    (Optional) Max value used to saturate up the output result before converting back to QASYMM8,
-     *                   Along with @p min, this value can be used to implement "rectified linear unit" activation functions
-     *
-     * @return a status
-     */
-    static Status validate(const ITensorInfo *input, const ITensorInfo *bias, const ITensorInfo *output, int min = 0, int max = 0);
-};
-
-/** Basic function to execute NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint on NEON.
- *
- *  NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint depends on 3 parameters:
- *
- *  result_fixedpoint_multiplier, result_shift, result_offset_after_shift
- *
- * The final result is:
- *
- * (FixedPointMul(input[i][k], result_fixedpoint_multiplier) >> result_shift) + result_offset_after_shift
- *
- * where FixedPointMul(x, y) is the nearest integer to the following
- * mathematical expression, evaluated without overflow or intermediate rounding:
- *
- * (x * y) / 2^31
- *
- * For more information: https://github.com/google/gemmlowp/blob/master/public/output_stages.h#L68
- *
- * In case the bias tensor is provided, the final result is:
- *
- * ((FixedPointMul(input[i][k] + bias[k], result_fixedpoint_multiplier)) >> result_shift) + result_offset_after_shift
- *
- *  This function calls the following NEON kernels:
- *
- * -# @ref NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPointKernel
- *
- * @note The function accepts also 2 optional input arguments (min and max) which can be used to implement "rectified linear unit" activation functions
- *       after the result is shifted right by result_shift
-*/
-class NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint : public INESimpleFunctionNoBorder
-{
-public:
-    /** Initialise the kernel's inputs, output
-     *
-     * @param[in]  input                        Input tensor. Data type supported: S32
-     * @param[in]  bias                         Biases tensor. Only shared biases supported and it can be a nullptr if the biases addition is not required.
-     *                                          Biases are 1D tensor with dimensions [OFM]. Data type supported: Same as @p input.
-     * @param[out] output                       Output tensor. Data type supported: Data type supported: QASYMM8
-     * @param[in]  result_fixedpoint_multiplier Fixed point value to be multiplied to each element of the input matrix when once the result_offset has been add
-     * @param[in]  result_shift                 Number of bits to shift right the result after the fixed point multiplication
-     * @param[in]  result_offset_after_shift    Offset to be applied to result before converting it back to QASYMM8
-     * @param[in]  min                          (Optional) Min value used to saturate down the output result before converting back to QASYMM8
-     * @param[in]  max                          (Optional) Max value used to saturate up the output result before converting back to QASYMM8,
-     *                                          Along with @p min, this value can be used to implement "rectified linear unit" activation functions
-     */
-    void configure(const ITensor *input, const ITensor *bias, ITensor *output, int result_fixedpoint_multiplier, int result_shift, int result_offset_after_shift, int min = 0, int max = 0);
-    /** Static function to check if given info will lead to a valid configuration of @ref NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint
-     *
-     * @param[in] input  Input tensor. It is the output of @ref NEGEMMLowpMatrixMultiplyCore function. Data type supported: S32
-     * @param[in] bias   Biases tensor. Only shared biases supported and it can be a nullptr if the addition of biases is not required.
-     *                   Biases are 1D tensor with dimensions [OFM]. Data type supported: Same as @p input.
-     * @param[in] output Output tensor. Data type supported: Data type supported: QASYMM8
-     * @param[in] min    (Optional) Min value used to saturate down the output result before converting back to QASYMM8
-     * @param[in] max    (Optional) Max value used to saturate up the output result before converting back to QASYMM8,
-     *                            Along with @p min, this value can be used to implement "rectified linear unit" activation functions
-     *
-     * @return a status
-     */
-    static Status validate(const ITensorInfo *input, const ITensorInfo *bias, const ITensorInfo *output, int min = 0, int max = 0);
-};
-/** Basic function to execute NEGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPoint on NEON.
- *
- *  NEGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPoint depends on 2 parameters:
- *
- *  result_fixedpoint_multiplier, result_shift
- *
- * The final result is:
- *
- * (FixedPointMul(input[i][k], result_fixedpoint_multiplier) >> result_shift)
- *
- * where FixedPointMul(x, y) is the nearest integer to the following
- * mathematical expression, evaluated without overflow or intermediate rounding:
- *
- * (x * y) / 2^31
- *
- * For more information: https://github.com/google/gemmlowp/blob/master/public/output_stages.h#L68
- *
- * In case the bias tensor is provided, the final result is:
- *
- * ((FixedPointMul(input[i][k] + bias[k], result_fixedpoint_multiplier)) >> result_shift) + result_offset_after_shift
- *
- *  This function calls the following NEON kernels:
- *
- * -# @ref NEGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPointKernel
- *
- * @note The function accepts also 2 optional input arguments (min and max) which can be used to implement "rectified linear unit" activation functions
- *       after the result is shifted right by result_shift
-*/
-class NEGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPoint : public INESimpleFunctionNoBorder
-{
-public:
-    /** Initialise the kernel's inputs, output
-     *
-     * @param[in]  input                        Input tensor. Data type supported: S32
-     * @param[in]  bias                         Biases tensor. Only shared biases supported and it can be a nullptr if the biases addition is not required.
-     *                                          Biases are 1D tensor with dimensions [OFM]. Data type supported: Same as @p input.
-     * @param[out] output                       Output tensor. Data type supported: Data type supported: QSYMM16
-     * @param[in]  result_fixedpoint_multiplier Fixed point value to be multiplied to each element of the input matrix when once the result_offset has been add
-     * @param[in]  result_shift                 Number of bits to shift right the result after the fixed point multiplication
-     * @param[in]  min                          (Optional) Min value used to saturate down the output result before converting back to QSYMM16. Defaults to 0.
-     * @param[in]  max                          (Optional) Max value used to saturate up the output result before converting back to QSYMM16.
-     *                                          Along with @p min, this value can be used to implement "rectified linear unit" activation functions. Defaults to 0.
-     */
-    void configure(const ITensor *input, const ITensor *bias, ITensor *output, int result_fixedpoint_multiplier, int result_shift, int min = 0, int max = 0);
-    /** Static function to check if given info will lead to a valid configuration of @ref NEGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint
+    void configure(const ITensor *input, const ITensor *bias, ITensor *output, const GEMMLowpOutputStageInfo &info);
+    /** Static function to check if given info will lead to a valid configuration of @ref NEGEMMLowpOutputStage
      *
      * @param[in] input  Input tensor info. It is the output of @ref NEGEMMLowpMatrixMultiplyCore function. Data type supported: S32
      * @param[in] bias   Biases tensor info. Only shared biases supported and it can be a nullptr if the addition of biases is not required.
      *                   Biases are 1D tensor with dimensions [OFM]. Data type supported: Same as @p input.
-     * @param[in] output Output tensor info. Data type supported: Data type supported: QSYMM16
-     * @param[in] min    (Optional) Min value used to saturate down the output result before converting back to QSYMM16. Defaults to 0.
-     * @param[in] max    (Optional) Max value used to saturate up the output result before converting back to QSYMM16,
-     *                            Along with @p min, this value can be used to implement "rectified linear unit" activation functions. Defaults to 0.
+     * @param[in] output Output tensor info. Data type supported: Data type supported: QASYMM8/QASYMM8_SIGNED/QSYMM16
+     * @param[in] info   GEMMLowp output stage metadata.
      *
      * @return a status
      */
-    static Status validate(const ITensorInfo *input, const ITensorInfo *bias, const ITensorInfo *output, int min = 0, int max = 0);
+    static Status validate(const ITensorInfo *input, const ITensorInfo *bias, const ITensorInfo *output, const GEMMLowpOutputStageInfo &info);
+
+    // Inherited methods overridden:
+    void run() override;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_NEGEMMLOWPOUTPUTSTAGE_H__ */
+#endif /*ARM_COMPUTE_NEGEMMLOWPOUTPUTSTAGE_H */

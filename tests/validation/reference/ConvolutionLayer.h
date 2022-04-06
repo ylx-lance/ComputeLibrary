@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_CONVOLUTION_LAYER_H__
-#define __ARM_COMPUTE_TEST_CONVOLUTION_LAYER_H__
+#ifndef ARM_COMPUTE_TEST_CONVOLUTION_LAYER_H
+#define ARM_COMPUTE_TEST_CONVOLUTION_LAYER_H
 
 #include "tests/SimpleTensor.h"
 #include "tests/validation/Helpers.h"
@@ -35,11 +35,11 @@ namespace validation
 {
 namespace reference
 {
-template <typename T, typename TB>
-SimpleTensor<T> convolution_layer(const SimpleTensor<T> &src, const SimpleTensor<T> &weights, const SimpleTensor<TB> &bias, const TensorShape &output_shape, const PadStrideInfo &info,
+template <typename T, typename TW, typename TB>
+SimpleTensor<T> convolution_layer(const SimpleTensor<T> &src, const SimpleTensor<TW> &weights, const SimpleTensor<TB> &bias, const TensorShape &output_shape, const PadStrideInfo &info,
                                   const Size2D &dilation = Size2D(1U, 1U), unsigned int num_groups = 1, QuantizationInfo out_quant_info = QuantizationInfo());
 } // namespace reference
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_CONVOLUTION_LAYER_H__ */
+#endif /* ARM_COMPUTE_TEST_CONVOLUTION_LAYER_H */

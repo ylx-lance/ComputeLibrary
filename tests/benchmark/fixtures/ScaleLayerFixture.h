@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -35,7 +35,7 @@ namespace arm_compute
 {
 namespace test
 {
-/** Fixture that can be used for NEON, CL and OpenGL ES */
+/** Fixture that can be used for Neon, CL and OpenGL ES */
 template <typename TensorType, typename Function, typename Accessor, typename T>
 class ScaleLayerFixture : public framework::Fixture
 {
@@ -61,10 +61,10 @@ public:
         shape_scaled.set(1, shape[1] * scale_y);
         dst = create_tensor<TensorType>(shape_scaled, data_type);
 
-        scale_layer.configure(&src, &dst, policy, border_mode, constant_border_value, sampling_policy);
+        scale_layer.configure(&src, &dst, ScaleKernelInfo{ policy, border_mode, constant_border_value, sampling_policy });
 
-        ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(dst.info()->is_resizable());
 
         // Allocate tensors
         src.allocator()->allocate();

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_UTILS_H__
-#define __ARM_COMPUTE_GRAPH_UTILS_H__
+#ifndef ARM_COMPUTE_GRAPH_UTILS_H
+#define ARM_COMPUTE_GRAPH_UTILS_H
 
 #include "arm_compute/graph/Graph.h"
 #include "arm_compute/graph/PassManager.h"
@@ -33,6 +33,12 @@ namespace graph
 {
 // Forward Declaration
 class GraphContext;
+
+inline bool is_utility_node(INode *node)
+{
+    std::set<NodeType> utility_node_types = { NodeType::PrintLayer };
+    return utility_node_types.find(node->type()) != utility_node_types.end();
+}
 
 /** Returns the tensor descriptor of a given tensor
  *
@@ -70,7 +76,7 @@ bool is_target_supported(Target target);
 /** Returns default target for execution
  *
  * @note If an OpenCL backend exists then OpenCL is returned,
- *       else if the NEON backend exists returns NEON as target.
+ *       else if the CPU backend exists returns @ref Target::NEON as target.
  *       If no backends are registered an error is raised.
  *
  * @return Default target
@@ -85,10 +91,11 @@ void force_target_to_graph(Graph &g, Target target);
 /** Creates a default @ref PassManager
  *
  * @param[in] target Target to create the pass manager for
+ * @param[in] cfg    Graph configuration meta-data
  *
  * @return A PassManager with default mutating passes
  */
-PassManager create_default_pass_manager(Target target);
+PassManager create_default_pass_manager(Target target, const GraphConfig &cfg);
 /** Setups requested backend context if it exists, is supported and hasn't been initialized already.
  *
  * @param[in,out] ctx    Graph Context.
@@ -100,6 +107,8 @@ void setup_requested_backend_context(GraphContext &ctx, Target target);
  * @param[in,out] ctx Graph Context
  */
 void release_default_graph_context(GraphContext &ctx);
+/** Synchronize kernels execution on the backends. On GPU, this results in a blocking call waiting for all kernels to be completed. */
+void sync_backends();
 /** Get size of a tensor's given dimension depending on its layout
  *
  * @param[in] descriptor            Descriptor
@@ -123,6 +132,13 @@ size_t get_dimension_idx(DataLayout data_layout, const DataLayoutDimension data_
  * @return A list with the driving node of a given node
  */
 std::vector<NodeIdxPair> get_driving_nodes(const INode &node);
+/** Get the list of driver nodes of a given node
+ *
+ * @param[in] node Node to find the driver node of
+ *
+ * @return A list with the driver node of a given node
+ */
+std::vector<NodeIdxPair> get_driver_nodes(const INode &node);
 /** Configures tensor
  *
  * @param[in, out] tensor Tensor to configure
@@ -130,4 +146,4 @@ std::vector<NodeIdxPair> get_driving_nodes(const INode &node);
 void configure_tensor(Tensor *tensor);
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_UTILS_H__ */
+#endif /* ARM_COMPUTE_GRAPH_UTILS_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -70,7 +70,7 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
     inputs_vector_info.emplace_back(std::move(input_info1));
     inputs_vector_info.emplace_back(std::move(input_info2));
 
-    std::vector<ITensorInfo *> inputs_vector_info_raw;
+    std::vector<const ITensorInfo *> inputs_vector_info_raw;
     inputs_vector_info_raw.reserve(inputs_vector_info.size());
     for(auto &input : inputs_vector_info)
     {
@@ -136,10 +136,12 @@ FIXTURE_DATA_TEST_CASE(RunSmall, NEBatchConcatenateLayerFixture<uint8_t>, framew
     // Validate output
     validate(Accessor(_target), _reference);
 }
-FIXTURE_DATA_TEST_CASE(RunLarge, NEBatchConcatenateLayerFixture<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::ConcatenateLayerShapes(),
-                                                                                                                   framework::dataset::make("DataType",
-                                                                                                                           DataType::QASYMM8)),
-                                                                                                                   framework::dataset::make("Axis", 3)))
+TEST_SUITE_END()
+TEST_SUITE(QASYMM8_SIGNED)
+FIXTURE_DATA_TEST_CASE(RunSmall, NEBatchConcatenateLayerFixture<int8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(concat(datasets::Small3DShapes(), datasets::Tiny4DShapes()),
+                                                                                                                    framework::dataset::make("DataType",
+                                                                                                                            DataType::QASYMM8_SIGNED)),
+                                                                                                                    framework::dataset::make("Axis", 3)))
 {
     // Validate output
     validate(Accessor(_target), _reference);

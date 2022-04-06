@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLCOMPARISON_H__
-#define __ARM_COMPUTE_CLCOMPARISON_H__
+#ifndef ARM_COMPUTE_CLCOMPARISON_H
+#define ARM_COMPUTE_CLCOMPARISON_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/CL/ICLSimpleFunction.h"
@@ -30,7 +30,9 @@
 namespace arm_compute
 {
 // Forward declarations
+class CLCompileContext;
 class ICLTensor;
+class ITensorInfo;
 
 /** Basic function to run @ref CLComparisonKernel */
 class CLComparison : public ICLSimpleFunction
@@ -38,7 +40,15 @@ class CLComparison : public ICLSimpleFunction
 public:
     /** Initialise the kernel's inputs and outputs.
      *
-     * @param[in]  input1    Source tensor. Data types supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32.
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src0     |src1     |dst      |
+     * |:--------|:--------|:--------|
+     * |All      |All      |U8       |
+     *
+     * @param[in]  input1    Source tensor. Data types supported: All.
      *                       The input1 tensor is [in, out] because its TensorInfo might be modified inside the kernel in case of broadcasting of dimension 0.
      * @param[in]  input2    Source tensor. Data types supported: Same as @p input1.
      *                       The input2 tensor is [in, out] because its TensorInfo might be modified inside the kernel in case of broadcasting of dimension 0.
@@ -46,9 +56,20 @@ public:
      * @param[out] operation Comparison operation to be used.
      */
     void configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output, ComparisonOperation operation);
+    /** Initialise the kernel's inputs and outputs.
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  input1          Source tensor. Data types supported: All.
+     *                             The input1 tensor is [in, out] because its TensorInfo might be modified inside the kernel in case of broadcasting of dimension 0.
+     * @param[in]  input2          Source tensor. Data types supported: Same as @p input1.
+     *                             The input2 tensor is [in, out] because its TensorInfo might be modified inside the kernel in case of broadcasting of dimension 0.
+     * @param[out] output          Destination tensor. Data types supported: U8.
+     * @param[out] operation       Comparison operation to be used.
+     */
+    void configure(const CLCompileContext &compile_context, ICLTensor *input1, ICLTensor *input2, ICLTensor *output, ComparisonOperation operation);
     /** Static function to check if given info will lead to a valid configuration of @ref CLComparison
      *
-     * @param[in]  input1    Source tensor. Data types supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32.
+     * @param[in]  input1    Source tensor. Data types supported: All.
      * @param[in]  input2    Source tensor. Data types supported: Same as @p input1.
      * @param[in]  output    Destination tensor. Data types supported: U8.
      * @param[out] operation Comparison operation to be used.
@@ -68,16 +89,29 @@ public:
 public:
     /** Initialise the kernel's inputs and outputs.
      *
-     * @param[in]  input1 Source tensor. Data types supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32.
+     * @param[in]  input1 Source tensor. Data types supported: All.
      *                    The input1 tensor is [in, out] because its TensorInfo might be modified inside the kernel in case of broadcasting of dimension 0.
      * @param[in]  input2 Source tensor. Data types supported: Same as @p input1.
      *                    The input2 tensor is [in, out] because its TensorInfo might be modified inside the kernel in case of broadcasting of dimension 0.
      * @param[out] output Destination tensor. Data types supported: U8.
      */
     void configure(ICLTensor *input1, ICLTensor *input2, ICLTensor *output);
+    /** Comparison operations used by the class */
+
+public:
+    /** Initialise the kernel's inputs and outputs.
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  input1          Source tensor. Data types supported: All.
+     *                             The input1 tensor is [in, out] because its TensorInfo might be modified inside the kernel in case of broadcasting of dimension 0.
+     * @param[in]  input2          Source tensor. Data types supported: Same as @p input1.
+     *                             The input2 tensor is [in, out] because its TensorInfo might be modified inside the kernel in case of broadcasting of dimension 0.
+     * @param[out] output          Destination tensor. Data types supported: U8.
+     */
+    void configure(const CLCompileContext &compile_context, ICLTensor *input1, ICLTensor *input2, ICLTensor *output);
     /** Static function to check if given info will lead to a valid configuration of @ref CLComparison
      *
-     * @param[in] input1 Source tensor. Data types supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32.
+     * @param[in] input1 Source tensor. Data types supported: All.
      * @param[in] input2 Source tensor. Data types supported: Same as @p input1.
      * @param[in] output Destination tensor. Data types supported: U8.
      *
@@ -99,4 +133,4 @@ using CLLess = CLComparisonStatic<ComparisonOperation::Less>;
 /** Basic function to run less-equal comparison. */
 using CLLessEqual = CLComparisonStatic<ComparisonOperation::LessEqual>;
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLCOMPARISON_H__ */
+#endif /* ARM_COMPUTE_CLCOMPARISON_H */

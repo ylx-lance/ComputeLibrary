@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,7 +28,6 @@
 #include "arm_compute/runtime/NEON/functions/NENormalizationLayer.h"
 #include "arm_compute/runtime/PoolManager.h"
 #include "arm_compute/runtime/TensorAllocator.h"
-#include "support/ToolchainSupport.h"
 #include "tests/AssetsLibrary.h"
 #include "tests/Globals.h"
 #include "tests/NEON/Accessor.h"
@@ -63,15 +62,15 @@ TEST_CASE(BlobMemoryManagerSimpleWithinFunctionLevel, framework::DatasetMode::AL
     norm_layer_1.configure(&src, &dst, NormalizationLayerInfo(NormType::CROSS_MAP, 3));
     norm_layer_2.configure(&src, &dst, NormalizationLayerInfo(NormType::IN_MAP_1D, 3));
 
-    ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+    ARM_COMPUTE_ASSERT(src.info()->is_resizable());
+    ARM_COMPUTE_ASSERT(dst.info()->is_resizable());
 
     // Allocate tensors
     src.allocator()->allocate();
     dst.allocator()->allocate();
 
-    ARM_COMPUTE_EXPECT(!src.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(!dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+    ARM_COMPUTE_ASSERT(!src.info()->is_resizable());
+    ARM_COMPUTE_ASSERT(!dst.info()->is_resizable());
 
     // Finalize memory manager
     mm->populate(allocator, 1 /* num_pools */);

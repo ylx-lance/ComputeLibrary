@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,18 +21,18 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLDIRECTDECONVOLUTIONLAYER_H__
-#define __ARM_COMPUTE_CLDIRECTDECONVOLUTIONLAYER_H__
+#ifndef ARM_COMPUTE_CLDIRECTDECONVOLUTIONLAYER_H
+#define ARM_COMPUTE_CLDIRECTDECONVOLUTIONLAYER_H
 
 #include "arm_compute/runtime/CL/functions/CLConvolutionLayer.h"
 #include "arm_compute/runtime/CL/functions/CLDeconvolutionLayerUpsample.h"
 #include "arm_compute/runtime/CL/functions/CLReverse.h"
 #include "arm_compute/runtime/CL/functions/CLTranspose.h"
 
-#include "arm_compute/runtime/CL/CLMemoryGroup.h"
 #include "arm_compute/runtime/CL/CLTensor.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
+#include "arm_compute/runtime/MemoryGroup.h"
 
 #include <memory>
 
@@ -61,7 +61,7 @@ class ICLTensor;
  *      stride_x and stride_y is the input stride of the first and second dimension.
  *
  * The weights used by Deconvolution are supposed to be the same as the ones used for Convolution. Therefore, it will be necessary to use the weights in the
- * reverse order to perform an actual convolution. This is achieved by using the @ref CPPFlipWeightsKernel.
+ * reverse order to perform an actual convolution. This is achieved by using @ref CLReverse.
  *
  * This function calls the following OpenCL kernels/functions:
  *
@@ -87,23 +87,56 @@ public:
     CLDirectDeconvolutionLayer &operator=(CLDirectDeconvolutionLayer &&) = default;
     /** Set the input, weights, biases and output tensors.
      *
-     * @param[in,out] input        Input tensor. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs. Data types supported: QASYMM8/F16/F32.
-     * @param[in]     weights      The 4d weights with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input.
-     * @param[in]     bias         (Optional) The biases have one dimension. Data type supported: Same as @p input.
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src0           |src1               |src2   |dst            |
+     * |:--------------|:------------------|:------|:--------------|
+     * |F16            |F16                |F16    |F16            |
+     * |F32            |F32                |F32    |F32            |
+     * |QASYMM8        |QASYMM8            |S32    |QASYMM8        |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED     |S32    |QASYMM8_SIGNED |
+     * |QASYMM8        |QSYMM8_PER_CHANNEL |S32    |QASYMM8        |
+     * |QASYMM8_SIGNED |QSYMM8_PER_CHANNEL |S32    |QASYMM8_SIGNED |
+     *
+     * @param[in,out] input        Input tensor. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs.
+     *                             Data types supported: QASYMM8_SIGNED/QASYMM8/F16/F32.
+     * @param[in]     weights      The 4d weights with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input or QSYMM8_PER_CHANNEL if @p input is QASYMM8/QASYMM8_SIGNED.
+     * @param[in]     bias         (Optional) The biases have one dimension.
+     *                             Data type supported: Should match @p input data type, except for input of QASYMM8 and QASYMM8_SIGNED type where biases should be of S32 type
      * @param[out]    output       Output tensor. The output has the same number of dimensions as the @p input.
      * @param[in]     info         Contains padding and policies to be used in the deconvolution, this is decribed in @ref PadStrideInfo.
-     * @param[in]     weights_info (Optional) Weights information needed for @ref CLConvolutionLayer, specifies if the weights tensor has been reshaped with @ref CLWeightsReshapeKernel.
+     * @param[in]     weights_info (Optional) Weights information needed for @ref CLConvolutionLayer, specifies if the weights tensor has been reshaped with @ref opencl::kernels::ClWeightsReshapeKernel.
      *
      */
     void configure(ICLTensor *input, ICLTensor *weights, const ICLTensor *bias, ICLTensor *output, const PadStrideInfo &info, const WeightsInfo &weights_info = WeightsInfo());
+    /** Set the input, weights, biases and output tensors.
+     *
+     * @param[in]     compile_context The compile context to be used.
+     * @param[in,out] input           Input tensor. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs.
+     *                                Data types supported: QASYMM8_SIGNED/QASYMM8/F16/F32.
+     * @param[in]     weights         The 4d weights with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input or QSYMM8_PER_CHANNEL if @p input is QASYMM8/QASYMM8_SIGNED.
+     * @param[in]     bias            (Optional) The biases have one dimension.
+     *                                Data type supported: Should match @p input data type, except for input of QASYMM8 and QASYMM8_SIGNED type where biases should be of S32 type
+     * @param[out]    output          Output tensor. The output has the same number of dimensions as the @p input.
+     * @param[in]     info            Contains padding and policies to be used in the deconvolution, this is decribed in @ref PadStrideInfo.
+     * @param[in]     weights_info    (Optional) Weights information needed for @ref CLConvolutionLayer, specifies if the weights tensor has been reshaped with @ref opencl::kernels::ClWeightsReshapeKernel.
+     *
+     */
+    void configure(const CLCompileContext &compile_context, ICLTensor *input, ICLTensor *weights, const ICLTensor *bias, ICLTensor *output, const PadStrideInfo &info,
+                   const WeightsInfo &weights_info = WeightsInfo());
     /** Static function to check if given info will lead to a valid configuration of @ref CLDirectDeconvolutionLayer
      *
-     * @param[in] input        Input tensor info. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs. Data types supported: QASYMM8/F16/F32.
-     * @param[in] weights      The 4d weights info with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input.
-     * @param[in] bias         (Optional) The biases have one dimension. Data type supported: Same as @p input.
+     * @param[in] input        Input tensor info. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs.
+     *                         Data types supported: QASYMM8_SIGNED/QASYMM8/F16/F32.
+     * @param[in] weights      The 4d weights info with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input or QSYMM8_PER_CHANNEL if @p input is QASYMM8/QASYMM8_SIGNED.
+     * @param[in] bias         (Optional) The biases have one dimension.
+     *                         Data type supported: Should match @p input data type, except for input of QASYMM8 and QASYMM8_SIGNED type where biases should be of S32 type
      * @param[in] output       Output tensor info. The output has the same number of dimensions as the @p input.
      * @param[in] info         Contains padding and policies to be used in the deconvolution, this is decribed in @ref PadStrideInfo.
-     * @param[in] weights_info (Optional) Weights information needed for @ref CLConvolutionLayer, specifies if the weights tensor has been reshaped with @ref CLWeightsReshapeKernel.
+     * @param[in] weights_info (Optional) Weights information needed for @ref CLConvolutionLayer, specifies if the weights tensor has been reshaped with @ref opencl::kernels::ClWeightsReshapeKernel.
      *
      * @return a status
      */
@@ -115,7 +148,7 @@ public:
     void prepare() override;
 
 private:
-    CLMemoryGroup                _memory_group;
+    MemoryGroup                  _memory_group;
     CLDeconvolutionLayerUpsample _scale_f;
     CLConvolutionLayer           _conv_f;
     CLReverse                    _flip_weights;
@@ -128,4 +161,4 @@ private:
     bool _is_prepared;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLDECONVOLUTIONLAYER_H__ */
+#endif /* ARM_COMPUTE_CLDECONVOLUTIONLAYER_H */

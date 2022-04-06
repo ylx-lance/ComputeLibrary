@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_TYPE_LOADER_H__
-#define __ARM_COMPUTE_GRAPH_TYPE_LOADER_H__
+#ifndef ARM_COMPUTE_GRAPH_TYPE_LOADER_H
+#define ARM_COMPUTE_GRAPH_TYPE_LOADER_H
 
 #include "arm_compute/graph/Types.h"
 
@@ -30,29 +30,6 @@
 
 namespace arm_compute
 {
-/** Converts a string to a strong types enumeration @ref DataType
- *
- * @param[in] name String to convert
- *
- * @return Converted DataType enumeration
- */
-arm_compute::DataType data_type_from_name(const std::string &name);
-
-/** Input Stream operator for @ref DataType
- *
- * @param[in]  stream    Stream to parse
- * @param[out] data_type Output data type
- *
- * @return Updated stream
- */
-inline ::std::istream &operator>>(::std::istream &stream, arm_compute::DataType &data_type)
-{
-    std::string value;
-    stream >> value;
-    data_type = data_type_from_name(value);
-    return stream;
-}
-
 /** Converts a string to a strong types enumeration @ref DataLayout
  *
  * @param[in] name String to convert
@@ -149,4 +126,4 @@ inline ::std::istream &operator>>(::std::istream &stream, DepthwiseConvolutionMe
 
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_TYPE_LOADER_H__ */
+#endif /* ARM_COMPUTE_GRAPH_TYPE_LOADER_H */

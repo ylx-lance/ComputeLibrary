@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -123,7 +123,7 @@ SimpleTensor<float> scale_image(const SimpleTensor<float> &in, const TensorShape
 template <typename T>
 SimpleTensor<float> crop_image(const SimpleTensor<T> &src, Coordinates start, Coordinates end, int32_t batch_index, float extrapolation_value)
 {
-    TensorShape out_shape(src.shape()[0], abs(end[0] - start[0]) + 1, abs(end[1] - start[1]) + 1);
+    TensorShape out_shape(src.shape()[0], static_cast<uint32_t>(abs(end[0] - start[0])) + 1, static_cast<uint32_t>(abs(end[1] - start[1])) + 1);
 
     SimpleTensor<float> out{ out_shape, DataType::F32, 1, QuantizationInfo(), DataLayout::NHWC };
 
@@ -192,6 +192,8 @@ template SimpleTensor<float> crop_and_resize(const SimpleTensor<int16_t> &src, c
 template SimpleTensor<float> crop_and_resize(const SimpleTensor<int32_t> &src, const SimpleTensor<float> &boxes, SimpleTensor<int32_t> box_ind,
                                              Coordinates2D crop_size, InterpolationPolicy method, float extrapolation_value);
 template SimpleTensor<float> crop_and_resize(const SimpleTensor<half> &src, const SimpleTensor<float> &boxes, SimpleTensor<int32_t> box_ind,
+                                             Coordinates2D crop_size, InterpolationPolicy method, float extrapolation_value);
+template SimpleTensor<float> crop_and_resize(const SimpleTensor<uint8_t> &src, const SimpleTensor<float> &boxes, SimpleTensor<int32_t> box_ind,
                                              Coordinates2D crop_size, InterpolationPolicy method, float extrapolation_value);
 } // namespace reference
 } // namespace validation

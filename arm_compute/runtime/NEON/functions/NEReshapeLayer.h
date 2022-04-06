@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,35 +21,65 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NERESHAPELAYER_H__
-#define __ARM_COMPUTE_NERESHAPELAYER_H__
+#ifndef ARM_COMPUTE_NERESHAPELAYER_H
+#define ARM_COMPUTE_NERESHAPELAYER_H
 
 #include "arm_compute/core/Types.h"
-#include "arm_compute/runtime/NEON/INESimpleFunctionNoBorder.h"
+#include "arm_compute/runtime/IFunction.h"
+#include "arm_compute/runtime/NEON/INEOperator.h"
+#include "arm_compute/runtime/Types.h"
 
 namespace arm_compute
 {
+// Forward declarations
 class ITensor;
 
-/** Basic function to run @ref NEReshapeLayerKernel */
-class NEReshapeLayer : public INESimpleFunctionNoBorder
+/** Basic function to run @ref cpu::kernels::CpuReshapeKernel */
+class NEReshapeLayer : public IFunction
 {
 public:
+    /** Default Constructor */
+    NEReshapeLayer();
+    /** Default Destructor */
+    ~NEReshapeLayer();
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEReshapeLayer(const NEReshapeLayer &) = delete;
+    /** Default move constructor */
+    NEReshapeLayer(NEReshapeLayer &&);
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEReshapeLayer &operator=(const NEReshapeLayer &) = delete;
+    /** Default move assignment operator */
+    NEReshapeLayer &operator=(NEReshapeLayer &&);
     /** Initialise the kernel's inputs and outputs
      *
-     * @param[in]  input  First tensor input. Data type supported: U8/S8/QASYMM8//U16/S16/U32/S32/F16/F32
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src    |dst    |
+     * |:------|:------|
+     * |All    |All    |
+     *
+     * @param[in]  input  Input tensor. Data type supported: All
      * @param[out] output Output tensor. Data type supported: Same as @p input
      */
     void configure(const ITensor *input, ITensor *output);
 
     /** Static function to check if given info will lead to a valid configuration of @ref NEReshapeLayer
      *
-     * @param[in] input  First tensor info. Data type supported: U8/S8/QASYMM8//U16/S16/U32/S32/F16/F32
+     * @param[in] input  Input tensor info. Data type supported: All
      * @param[in] output Output tensor info. Data type supported: Same as @p input
      *
      * @return a status
      */
     static Status validate(const ITensorInfo *input, const ITensorInfo *output);
+
+    // Inherited methods overridden:
+    void run() override;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_NERESHAPELAYER_H__ */
+#endif /*ARM_COMPUTE_NERESHAPELAYER_H */

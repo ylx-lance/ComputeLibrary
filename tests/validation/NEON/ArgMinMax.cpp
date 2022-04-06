@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,9 +24,11 @@
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/utils/misc/Traits.h"
 #include "arm_compute/runtime/NEON/functions/NEArgMinMaxLayer.h"
+#include "arm_compute/runtime/NEON/functions/NEReductionOperation.h"
 #include "arm_compute/runtime/Tensor.h"
 #include "arm_compute/runtime/TensorAllocator.h"
 
+#include "arm_compute/core/utils/misc/ShapeCalculator.h"
 #include "tests/NEON/Accessor.h"
 #include "tests/datasets/ShapeDatasets.h"
 #include "tests/datasets/SplitDataset.h"
@@ -54,7 +56,7 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(zip(
         }),
         framework::dataset::make("OutputInfo", { TensorInfo(TensorShape(27U, 3U, 1U, 2U), 1, DataType::F32),
                                                  TensorInfo(TensorShape(27U, 3U, 1U, 2U), 1, DataType::F32),
-                                                 TensorInfo(TensorShape(32U, 16U, 1U, 2U), 1, DataType::U32),
+                                                 TensorInfo(TensorShape(32U, 16U, 2U), 1, DataType::S32),
                                                  TensorInfo(TensorShape(32U, 16U, 1U, 2U), 1, DataType::F32)
         })),
         framework::dataset::make("Axis", { 4, 0, 2, 0 })),
@@ -67,26 +69,6 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(zip(
 }
 // clang-format on
 // *INDENT-ON*
-
-DATA_TEST_CASE(Configuration,
-               framework::DatasetMode::ALL,
-               combine(datasets::SmallShapes(), framework::dataset::make("DataType", { DataType::F32 })),
-               shape, data_type)
-{
-    // Create tensors
-    Tensor ref_src = create_tensor<Tensor>(shape, data_type);
-    Tensor dst;
-
-    // Create and Configure function
-    NEArgMinMaxLayer arg_min_max_layer;
-    arg_min_max_layer.configure(&ref_src, 1, &dst, ReductionOperation::ARG_IDX_MAX);
-
-    // Validate valid region
-    TensorShape output_shape = shape;
-    output_shape.set(1, 1);
-    const ValidRegion valid_region = shape_to_valid_region(output_shape);
-    validate(dst.info()->valid_region(), valid_region);
-}
 
 template <typename T>
 using NEArgMinMaxValidationFixture = ArgMinMaxValidationFixture<Tensor, Accessor, NEArgMinMaxLayer, T>;
@@ -181,8 +163,32 @@ FIXTURE_DATA_TEST_CASE(RunLarge,
     validate(Accessor(_target), _reference);
 }
 TEST_SUITE_END() // QASYMM8
+
+TEST_SUITE(QASYMM8_SIGNED)
+FIXTURE_DATA_TEST_CASE(RunSmall,
+                       NEArgMinMaxQuantizedValidationFixture<int8_t>,
+                       framework::DatasetMode::PRECOMMIT,
+                       combine(combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)), framework::dataset::make("Axis", { 0, 1, 2, 3 })),
+                                       framework::dataset::make("Operation", { ReductionOperation::ARG_IDX_MIN, ReductionOperation::ARG_IDX_MAX })),
+                               framework::dataset::make("QuantizationInfo", { QuantizationInfo(5.f / 127.f, 20) })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference);
+}
+
+FIXTURE_DATA_TEST_CASE(RunLarge,
+                       NEArgMinMaxQuantizedValidationFixture<int8_t>,
+                       framework::DatasetMode::NIGHTLY,
+                       combine(combine(combine(combine(datasets::Large4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)), framework::dataset::make("Axis", { 0, 1, 2, 3 })),
+                                       framework::dataset::make("Operation", { ReductionOperation::ARG_IDX_MIN, ReductionOperation::ARG_IDX_MAX })),
+                               framework::dataset::make("QuantizationInfo", { QuantizationInfo(5.f / 127.f, 20) })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference);
+}
+TEST_SUITE_END() // QASYMM8_SIGNED
 TEST_SUITE_END() // ArgMinMax
-TEST_SUITE_END() // NEON
+TEST_SUITE_END() // Neon
 } // namespace validation
 } // namespace test
 } // namespace arm_compute

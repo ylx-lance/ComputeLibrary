@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,17 +21,18 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/CL/kernels/CLReorgLayerKernel.h"
+#include "src/core/CL/kernels/CLReorgLayerKernel.h"
 
 #include "arm_compute/core/CL/CLHelpers.h"
 #include "arm_compute/core/CL/CLKernelLibrary.h"
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Validate.h"
-#include "arm_compute/core/Window.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+#include "support/StringSupport.h"
 
 #include <string>
 
@@ -42,11 +43,7 @@ namespace
 Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, int32_t stride)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1,
-                                                         DataType::U8, DataType::S8, DataType::QASYMM8,
-                                                         DataType::U16, DataType::S16,
-                                                         DataType::U32, DataType::S32,
-                                                         DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON(input->data_layout() == DataLayout::UNKNOWN);
 
     const size_t idx_width  = get_data_layout_dimension_index(input->data_layout(), DataLayoutDimension::WIDTH);
@@ -71,12 +68,19 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, i
 CLReorgLayerKernel::CLReorgLayerKernel()
     : _input(nullptr), _output(nullptr)
 {
+    _type = CLKernelType::ELEMENTWISE;
 }
 
 void CLReorgLayerKernel::configure(const ICLTensor *input, ICLTensor *output, int32_t stride)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, stride);
+}
+
+void CLReorgLayerKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output, int32_t stride)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input->info(), output->info(), stride));
+    auto padding_info = get_padding_info({ input, output });
 
     _input  = input;
     _output = output;
@@ -89,7 +93,7 @@ void CLReorgLayerKernel::configure(const ICLTensor *input, ICLTensor *output, in
     build_opts.add_option("-DDATA_TYPE=" + get_cl_type_from_data_type(input->info()->data_type()));
     build_opts.add_option("-DSRC_DEPTH=" + support::cpp11::to_string(input->info()->dimension(idx_channel)));
     build_opts.add_option("-DSTRIDE=" + support::cpp11::to_string(stride));
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(kernel_name, build_opts.options()));
+    _kernel = create_kernel(compile_context, kernel_name, build_opts.options());
 
     // Configure window
     // auto inizialize the output tensor if not yet initialized
@@ -98,7 +102,6 @@ void CLReorgLayerKernel::configure(const ICLTensor *input, ICLTensor *output, in
     Window win = calculate_max_window(*output->info(), Steps());
 
     // The CLWeightsReshapeKernel doesn't need padding so update_window_and_padding() can be skipped
-    output->info()->set_valid_region(ValidRegion(Coordinates(), output->info()->tensor_shape()));
     ICLKernel::configure_internal(win);
 
     _config_id = kernel_name;
@@ -112,6 +115,7 @@ void CLReorgLayerKernel::configure(const ICLTensor *input, ICLTensor *output, in
     _config_id += support::cpp11::to_string(input->info()->dimension(2));
     _config_id += "_";
     _config_id += support::cpp11::to_string(stride);
+    ARM_COMPUTE_ERROR_ON(has_padding_changed(padding_info));
 }
 
 Status CLReorgLayerKernel::validate(const arm_compute::ITensorInfo *input, const arm_compute::ITensorInfo *output, int32_t stride)

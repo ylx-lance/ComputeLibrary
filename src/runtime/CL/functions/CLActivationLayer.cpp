@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,20 +23,58 @@
  */
 #include "arm_compute/runtime/CL/functions/CLActivationLayer.h"
 
-#include "arm_compute/core/CL/kernels/CLActivationLayerKernel.h"
+#include "arm_compute/core/CL/ICLTensor.h"
 #include "arm_compute/core/Types.h"
-#include "support/ToolchainSupport.h"
+#include "arm_compute/core/Validate.h"
+#include "arm_compute/runtime/CL/CLRuntimeContext.h"
+#include "src/core/CL/ICLKernel.h"
+#include "src/gpu/cl/operators/ClActivation.h"
 
-using namespace arm_compute;
+namespace arm_compute
+{
+struct CLActivationLayer::Impl
+{
+    const ICLTensor                      *src{ nullptr };
+    ICLTensor                            *dst{ nullptr };
+    CLRuntimeContext                     *ctx{ nullptr };
+    std::unique_ptr<opencl::ClActivation> op{ nullptr };
+};
+
+CLActivationLayer::CLActivationLayer(CLRuntimeContext *ctx)
+    : _impl(std::make_unique<Impl>())
+{
+    _impl->ctx = ctx;
+}
+CLActivationLayer::CLActivationLayer(CLActivationLayer &&) = default;
+CLActivationLayer &CLActivationLayer::operator=(CLActivationLayer &&) = default;
+CLActivationLayer::~CLActivationLayer()                               = default;
 
 void CLActivationLayer::configure(ICLTensor *input, ICLTensor *output, ActivationLayerInfo act_info)
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLActivationLayerKernel>();
-    k->configure(input, output, act_info);
-    _kernel = std::move(k);
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, act_info);
+}
+
+void CLActivationLayer::configure(const CLCompileContext &compile_context, ICLTensor *input, ICLTensor *output, ActivationLayerInfo act_info)
+{
+    ARM_COMPUTE_ERROR_ON_NULLPTR(input);
+
+    _impl->src = input;
+    _impl->dst = output == nullptr ? input : output;
+
+    _impl->op = std::make_unique<opencl::ClActivation>();
+    _impl->op->configure(compile_context, _impl->src->info(), _impl->dst->info(), act_info);
 }
 
 Status CLActivationLayer::validate(const ITensorInfo *input, const ITensorInfo *output, const ActivationLayerInfo &act_info)
 {
-    return CLActivationLayerKernel::validate(input, output, act_info);
+    return opencl::ClActivation::validate(input, output, act_info);
 }
+
+void CLActivationLayer::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC, _impl->src);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+    _impl->op->run(pack);
+}
+} // namespace arm_compute

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CPP_NONMAXIMUMSUPPRESSIONKERNEL_LAYER_H__
-#define __ARM_COMPUTE_CPP_NONMAXIMUMSUPPRESSIONKERNEL_LAYER_H__
+#ifndef ARM_COMPUTE_CPP_NONMAXIMUMSUPPRESSIONKERNEL_LAYER_H
+#define ARM_COMPUTE_CPP_NONMAXIMUMSUPPRESSIONKERNEL_LAYER_H
 
 #include "arm_compute/runtime/CPP/ICPPSimpleFunction.h"
 
@@ -92,11 +92,6 @@ private:
     float          _iou_threshold;
 
     unsigned int _num_boxes;
-
-    std::vector<float>        _scores_above_thd_vector;
-    std::vector<int>          _indices_above_thd_vector;
-    std::vector<bool>         _visited;
-    std::vector<unsigned int> _sorted_indices;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CPP_NONMAXIMUMSUPPRESSIONKERNEL_LAYER_H__ */
+#endif /* ARM_COMPUTE_CPP_NONMAXIMUMSUPPRESSIONKERNEL_LAYER_H */

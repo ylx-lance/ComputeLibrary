@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_REDUCTION_OPERATION_H__
-#define __ARM_COMPUTE_TEST_REDUCTION_OPERATION_H__
+#ifndef ARM_COMPUTE_TEST_REDUCTION_OPERATION_H
+#define ARM_COMPUTE_TEST_REDUCTION_OPERATION_H
 
 #include "tests/SimpleTensor.h"
 #include "tests/validation/Helpers.h"
@@ -36,9 +36,10 @@ namespace validation
 namespace reference
 {
 template <typename T, typename OT>
-SimpleTensor<OT> reduction_operation(const SimpleTensor<T> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op);
+SimpleTensor<OT> reduction_operation(const SimpleTensor<T> &src, const TensorShape &dst_shape, unsigned int axis, ReductionOperation op,
+                                     QuantizationInfo quantization_info_output = QuantizationInfo());
 } // namespace reference
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_REDUCTION_OPERATION_H__ */
+#endif /* ARM_COMPUTE_TEST_REDUCTION_OPERATION_H */

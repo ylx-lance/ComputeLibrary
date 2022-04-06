@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,7 +26,6 @@
 #include "arm_compute/core/utils/io/FileHandler.h"
 
 #include "arm_compute/core/Error.h"
-#include "support/ToolchainSupport.h"
 
 using namespace arm_compute::io;
 
@@ -43,7 +42,6 @@ FileHandler::~FileHandler()
 void FileHandler::open(const std::string &filename, std::ios_base::openmode mode)
 {
     close();
-    ;
     _filestream.open(filename, mode);
     ARM_COMPUTE_ERROR_ON(!_filestream.good());
     _filename = filename;

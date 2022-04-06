@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -37,6 +37,7 @@
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/runtime/Allocator.h"
 #include "arm_compute/runtime/BlobLifetimeManager.h"
+#include "arm_compute/runtime/IWeightsManager.h"
 #include "arm_compute/runtime/MemoryGroup.h"
 #include "arm_compute/runtime/MemoryManagerOnDemand.h"
 #include "arm_compute/runtime/OffsetLifetimeManager.h"
@@ -51,7 +52,7 @@ namespace graph
 {
 namespace backends
 {
-/** Register NEON backend */
+/** Register CPU backend */
 static detail::BackendRegistrar<NEDeviceBackend> NEDeviceBackend_registrar(Target::NEON);
 
 NEDeviceBackend::NEDeviceBackend()
@@ -90,6 +91,16 @@ void NEDeviceBackend::setup_backend_context(GraphContext &ctx)
 
         ctx.insert_memory_management_ctx(std::move(mm_ctx));
     }
+
+    // Create function level weights manager
+    if(ctx.weights_management_ctx(Target::NEON) == nullptr)
+    {
+        WeightsManagerContext wm_ctx;
+        wm_ctx.target = Target::NEON;
+        wm_ctx.wm     = create_weights_manager();
+
+        ctx.insert_weights_management_ctx(std::move(wm_ctx));
+    }
 }
 
 bool NEDeviceBackend::is_backend_supported()
@@ -111,9 +122,8 @@ std::unique_ptr<ITensorHandle> NEDeviceBackend::create_tensor(const Tensor &tens
     // Create backend tensor handle
     TensorInfo info(tensor_desc.shape, 1, tensor_desc.data_type, tensor_desc.quant_info);
     info.set_data_layout(tensor_desc.layout);
-    auto backend_tensor_handle = support::cpp14::make_unique<NETensorHandle>(info);
 
-    return std::move(backend_tensor_handle);
+    return std::make_unique<NETensorHandle>(info);
 }
 
 std::unique_ptr<ITensorHandle> NEDeviceBackend::create_subtensor(ITensorHandle *parent, TensorShape shape, Coordinates coords, bool extend_parent)
@@ -123,12 +133,12 @@ std::unique_ptr<ITensorHandle> NEDeviceBackend::create_subtensor(ITensorHandle *
         return nullptr;
     }
 
-    return support::cpp14::make_unique<NESubTensorHandle>(parent, shape, coords, extend_parent);
+    return std::make_unique<NESubTensorHandle>(parent, shape, coords, extend_parent);
 }
 
 std::unique_ptr<arm_compute::IFunction> NEDeviceBackend::configure_node(INode &node, GraphContext &ctx)
 {
-    ARM_COMPUTE_LOG_GRAPH_VERBOSE("Configuring NEON node with ID : " << node.id() << std::endl);
+    ARM_COMPUTE_LOG_GRAPH_VERBOSE("Configuring CPU node with ID : " << node.id() << std::endl);
     ARM_COMPUTE_ERROR_ON(node.assigned_target() != Target::NEON);
 
     // Configure node
@@ -137,7 +147,7 @@ std::unique_ptr<arm_compute::IFunction> NEDeviceBackend::configure_node(INode &n
 
 arm_compute::Status NEDeviceBackend::validate_node(INode &node)
 {
-    ARM_COMPUTE_LOG_GRAPH_VERBOSE("Validating NEON node with ID : " << node.id() << std::endl);
+    ARM_COMPUTE_LOG_GRAPH_VERBOSE("Validating CPU node with ID : " << node.id() << std::endl);
     ARM_COMPUTE_ERROR_ON(node.assigned_target() != Target::NEON);
 
     return NENodeValidator::validate(&node);
@@ -158,6 +168,17 @@ std::shared_ptr<arm_compute::IMemoryManager> NEDeviceBackend::create_memory_mana
     auto mm       = std::make_shared<MemoryManagerOnDemand>(lifetime_mgr, pool_mgr);
 
     return mm;
+}
+
+std::shared_ptr<arm_compute::IWeightsManager> NEDeviceBackend::create_weights_manager()
+{
+    auto weights_mgr = std::make_shared<IWeightsManager>();
+    return weights_mgr;
+}
+
+void NEDeviceBackend::sync()
+{
+    // nop
 }
 } // namespace backends
 } // namespace graph

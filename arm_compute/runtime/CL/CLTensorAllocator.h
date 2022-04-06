@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLTENSORALLOCATOR_H__
-#define __ARM_COMPUTE_CLTENSORALLOCATOR_H__
+#ifndef ARM_COMPUTE_CLTENSORALLOCATOR_H
+#define ARM_COMPUTE_CLTENSORALLOCATOR_H
 
 #include "arm_compute/runtime/CL/CLArray.h"
 #include "arm_compute/runtime/CL/CLMemory.h"
+#include "arm_compute/runtime/IAllocator.h"
 #include "arm_compute/runtime/ITensorAllocator.h"
+#include "arm_compute/runtime/MemoryGroup.h"
 
 #include "arm_compute/core/CL/CLTypes.h"
 #include "arm_compute/core/CL/OpenCL.h"
@@ -36,11 +38,7 @@
 namespace arm_compute
 {
 class CLTensor;
-template <typename>
-class MemoryGroupBase;
-/** Memory Group in OpenCL */
-using CLMemoryGroup = MemoryGroupBase<CLTensor>;
-
+class CLRuntimeContext;
 /** Basic implementation of a CL memory tensor allocator. */
 class CLTensorAllocator : public ITensorAllocator
 {
@@ -48,8 +46,9 @@ public:
     /** Default constructor.
      *
      * @param[in] owner (Optional) Owner of the allocator.
+     * @param[in] ctx   (Optional) Runtime context.
      */
-    CLTensorAllocator(CLTensor *owner = nullptr);
+    CLTensorAllocator(IMemoryManageable *owner = nullptr, CLRuntimeContext *ctx = nullptr);
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     CLTensorAllocator(const CLTensorAllocator &) = delete;
     /** Prevent instances of this class from being copy assigned (As this class contains pointers) */
@@ -110,7 +109,7 @@ public:
     void free() override;
     /** Import an existing memory as a tensor's backing memory
      *
-     * @warning memory should have been created under the same context that ACL uses.
+     * @warning memory should have been created under the same context that Compute Library uses.
      * @warning memory is expected to be aligned with the device requirements.
      * @warning tensor shouldn't be memory managed.
      * @warning ownership of memory is not transferred.
@@ -127,7 +126,14 @@ public:
      *
      * @param[in] associated_memory_group Memory group to associate the tensor with
      */
-    void set_associated_memory_group(CLMemoryGroup *associated_memory_group);
+    void set_associated_memory_group(IMemoryGroup *associated_memory_group);
+
+    /** Sets global allocator that will be used by all CLTensor objects
+     *
+     *
+     * @param[in] allocator Allocator to be used as a global allocator
+     */
+    static void set_global_allocator(IAllocator *allocator);
 
 protected:
     /** Call map() on the OpenCL buffer.
@@ -142,12 +148,13 @@ private:
     static const cl::Buffer _empty_buffer;
 
 private:
-    CLMemoryGroup *_associated_memory_group; /**< Registered memory manager */
-    CLMemory       _memory;                  /**< OpenCL memory */
-    uint8_t       *_mapping;                 /**< Pointer to the CPU mapping of the OpenCL buffer. */
-    CLTensor      *_owner;                   /**< Owner of the allocator */
-    CLFloatArray   _scale;
-    CLInt32Array   _offset;
+    CLRuntimeContext *_ctx;
+    IMemoryManageable *_owner;                   /**< Memory manageable object that owns the allocator */
+    IMemoryGroup      *_associated_memory_group; /**< Registered memory manager */
+    CLMemory           _memory;                  /**< OpenCL memory */
+    uint8_t           *_mapping;                 /**< Pointer to the CPU mapping of the OpenCL buffer. */
+    CLFloatArray       _scale;                   /**< Scales array in case of quantized per channel data type */
+    CLInt32Array       _offset;                  /**< Offsets array in case of quantized per channel data type */
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLTENSORALLOCATOR_H__ */
+#endif /* ARM_COMPUTE_CLTENSORALLOCATOR_H */

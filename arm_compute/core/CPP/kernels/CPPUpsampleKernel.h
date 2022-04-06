@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CPPUPSAMPLEKERNEL_H__
-#define __ARM_COMPUTE_CPPUPSAMPLEKERNEL_H__
+#ifndef ARM_COMPUTE_CPPUPSAMPLEKERNEL_H
+#define ARM_COMPUTE_CPPUPSAMPLEKERNEL_H
 
 #include "arm_compute/core/CPP/ICPPKernel.h"
 
@@ -55,8 +55,8 @@ public:
 
     /** Set the input and output of the kernel.
      *
-     * @param[in]  input  The input tensor to upsample. Data types supported: F32/F16/QASYMM8
-     * @param[out] output The output tensor. Data types supported: Same as @p input
+     * @param[in]  input  The input tensor to upsample. Data types supported: All.
+     * @param[out] output The output tensor. Data types supported: same as @p input.
      * @param[in]  info   Padding info.
      */
     void configure(const ITensor *input, ITensor *output, const PadStrideInfo &info);
@@ -71,4 +71,4 @@ private:
     PadStrideInfo  _info;
 };
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_CPPUPSAMPLEKERNEL_H__ */
+#endif /*ARM_COMPUTE_CPPUPSAMPLEKERNEL_H */

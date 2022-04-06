@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,9 +23,11 @@
  */
 #include "arm_compute/runtime/CL/functions/CLSelect.h"
 
-#include "arm_compute/core/CL/kernels/CLSelectKernel.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/CL/CLScheduler.h"
+#include "src/core/CL/kernels/CLSelectKernel.h"
+
+#include "src/common/utils/Log.h"
 
 using namespace arm_compute;
 
@@ -33,8 +35,14 @@ namespace arm_compute
 {
 void CLSelect::configure(const ICLTensor *c, const ICLTensor *x, const ICLTensor *y, ICLTensor *output)
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLSelectKernel>();
-    k->configure(c, x, y, output);
+    configure(CLKernelLibrary::get().get_compile_context(), c, x, y, output);
+}
+
+void CLSelect::configure(const CLCompileContext &compile_context, const ICLTensor *c, const ICLTensor *x, const ICLTensor *y, ICLTensor *output)
+{
+    ARM_COMPUTE_LOG_PARAMS(c, x, y, output);
+    auto k = std::make_unique<CLSelectKernel>();
+    k->configure(compile_context, c, x, y, output);
     _kernel = std::move(k);
 }
 

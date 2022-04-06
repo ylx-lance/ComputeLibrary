@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,13 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_RUNTIME_MEMORY_REGION_H__
-#define __ARM_COMPUTE_RUNTIME_MEMORY_REGION_H__
+#ifndef ARM_COMPUTE_RUNTIME_MEMORY_REGION_H
+#define ARM_COMPUTE_RUNTIME_MEMORY_REGION_H
 
 #include "arm_compute/runtime/IMemoryRegion.h"
 
 #include "arm_compute/core/Error.h"
-#include "support/ToolchainSupport.h"
 
 #include <cstddef>
 
@@ -59,7 +58,7 @@ public:
             if(alignment != 0)
             {
                 void *aligned_ptr = _mem.get();
-                support::cpp11::align(alignment, size, aligned_ptr, space);
+                std::align(alignment, size, aligned_ptr, space);
                 _ptr = aligned_ptr;
             }
         }
@@ -86,7 +85,7 @@ public:
     {
         return _ptr;
     }
-    void *buffer() const final
+    const void *buffer() const final
     {
         return _ptr;
     }
@@ -94,7 +93,7 @@ public:
     {
         if(_ptr != nullptr && (offset < _size) && (_size - offset >= size))
         {
-            return support::cpp14::make_unique<MemoryRegion>(static_cast<uint8_t *>(_ptr) + offset, size);
+            return std::make_unique<MemoryRegion>(static_cast<uint8_t *>(_ptr) + offset, size);
         }
         else
         {
@@ -107,4 +106,4 @@ protected:
     void                    *_ptr;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_RUNTIME_MEMORY_REGION_H__ */
+#endif /* ARM_COMPUTE_RUNTIME_MEMORY_REGION_H */

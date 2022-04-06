@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,7 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/NEON/kernels/NETileKernel.h"
+#include "src/core/NEON/kernels/NETileKernel.h"
 
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
@@ -30,6 +30,8 @@
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/Window.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
 
 namespace arm_compute
 {
@@ -38,6 +40,7 @@ namespace
 Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, const Multiples &multiples)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON(multiples.size() > 4);
     ARM_COMPUTE_RETURN_ERROR_ON(multiples.empty());
     ARM_COMPUTE_RETURN_ERROR_ON(std::any_of(multiples.begin(), multiples.end(), [](uint32_t e)

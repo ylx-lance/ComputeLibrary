@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,7 +29,7 @@
 #include "arm_compute/graph/backends/BackendRegistry.h"
 #include "arm_compute/graph/nodes/Nodes.h"
 
-#include "arm_compute/core/utils/misc/Cast.h"
+#include "support/Cast.h"
 
 namespace arm_compute
 {
@@ -71,6 +71,11 @@ void set_default_on_invalid_method(Graph &g, NodeType node_type, Setter &&setter
 const char *NodeExecutionMethodMutator::name()
 {
     return "NodeExecutionMethodMutator";
+}
+
+IGraphMutator::MutationType NodeExecutionMethodMutator::type() const
+{
+    return IGraphMutator::MutationType::Backend;
 }
 
 void NodeExecutionMethodMutator::mutate(Graph &g)

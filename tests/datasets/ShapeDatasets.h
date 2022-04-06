@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_SHAPE_DATASETS_H__
-#define __ARM_COMPUTE_TEST_SHAPE_DATASETS_H__
+#ifndef ARM_COMPUTE_TEST_SHAPE_DATASETS_H
+#define ARM_COMPUTE_TEST_SHAPE_DATASETS_H
 
 #include "arm_compute/core/TensorShape.h"
 #include "tests/framework/datasets/Datasets.h"
@@ -88,9 +88,9 @@ public:
     Small2DShapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 7U, 7U },
-                     TensorShape{ 27U, 13U },
-                     TensorShape{ 128U, 64U }
+        TensorShape{ 1U, 7U },
+                     TensorShape{ 5U, 13U },
+                     TensorShape{ 32U, 64U }
     })
     {
     }
@@ -121,6 +121,7 @@ public:
                      TensorShape{ 2U, 5U, 4U },
 
                      TensorShape{ 7U, 7U, 5U },
+                     TensorShape{ 16U, 16U, 5U },
                      TensorShape{ 27U, 13U, 37U },
     })
     {
@@ -134,7 +135,7 @@ public:
     Tiny4DShapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 7U, 7U, 5U, 3U },
+        TensorShape{ 2U, 7U, 5U, 3U },
                      TensorShape{ 17U, 13U, 7U, 2U },
     })
     {
@@ -156,7 +157,7 @@ public:
     }
 };
 
-/** Data set containing small tensor shapes. */
+/** Data set containing tiny tensor shapes. */
 class TinyShapes final : public ShapeDataset
 {
 public:
@@ -164,8 +165,28 @@ public:
         : ShapeDataset("Shape",
     {
         // Batch size 1
-        TensorShape{ 9U, 9U },
+        TensorShape{ 1U, 9U },
                      TensorShape{ 27U, 13U, 2U },
+    })
+    {
+    }
+};
+/** Data set containing small tensor shapes with none of the dimensions equal to 1 (unit). */
+class SmallNoneUnitShapes final : public ShapeDataset
+{
+public:
+    SmallNoneUnitShapes()
+        : ShapeDataset("Shape",
+    {
+        // Batch size 1
+        TensorShape{ 13U, 11U },
+                     TensorShape{ 16U, 16U },
+                     TensorShape{ 24U, 26U, 5U },
+                     TensorShape{ 7U, 7U, 17U, 2U },
+                     // Batch size 4
+                     TensorShape{ 27U, 13U, 2U, 4U },
+                     // Arbitrary batch size
+                     TensorShape{ 8U, 7U, 5U, 5U }
     })
     {
     }
@@ -178,9 +199,10 @@ public:
         : ShapeDataset("Shape",
     {
         // Batch size 1
-        TensorShape{ 11U, 11U },
+        TensorShape{ 3U, 11U },
+                     TensorShape{ 1U, 16U },
                      TensorShape{ 27U, 13U, 7U },
-                     TensorShape{ 31U, 27U, 17U, 2U },
+                     TensorShape{ 7U, 7U, 17U, 2U },
                      // Batch size 4
                      TensorShape{ 27U, 13U, 2U, 4U },
                      // Arbitrary batch size
@@ -190,6 +212,44 @@ public:
     }
 };
 
+/** Data set containing pairs of tiny tensor shapes that are broadcast compatible. */
+class TinyShapesBroadcast final : public framework::dataset::ZipDataset<ShapeDataset, ShapeDataset>
+{
+public:
+    TinyShapesBroadcast()
+        : ZipDataset<ShapeDataset, ShapeDataset>(
+              ShapeDataset("Shape0",
+    {
+        TensorShape{ 9U, 9U },
+                     TensorShape{ 10U, 2U, 14U, 2U },
+    }),
+    ShapeDataset("Shape1",
+    {
+        TensorShape{ 9U, 1U, 9U },
+        TensorShape{ 10U },
+    }))
+    {
+    }
+};
+/** Data set containing pairs of tiny tensor shapes that are broadcast compatible and can do in_place calculation. */
+class TinyShapesBroadcastInplace final : public framework::dataset::ZipDataset<ShapeDataset, ShapeDataset>
+{
+public:
+    TinyShapesBroadcastInplace()
+        : ZipDataset<ShapeDataset, ShapeDataset>(
+              ShapeDataset("Shape0",
+    {
+        TensorShape{ 9U },
+                     TensorShape{ 10U, 2U, 14U, 2U },
+    }),
+    ShapeDataset("Shape1",
+    {
+        TensorShape{ 9U, 1U, 9U },
+        TensorShape{ 10U },
+    }))
+    {
+    }
+};
 /** Data set containing pairs of small tensor shapes that are broadcast compatible. */
 class SmallShapesBroadcast final : public framework::dataset::ZipDataset<ShapeDataset, ShapeDataset>
 {
@@ -203,7 +263,9 @@ public:
                      TensorShape{ 128U, 1U, 5U, 3U },
                      TensorShape{ 9U, 9U, 3U, 4U },
                      TensorShape{ 27U, 13U, 2U, 4U },
-                     TensorShape{ 1U, 1U, 1U, 5U }
+                     TensorShape{ 1U, 1U, 1U, 5U },
+                     TensorShape{ 1U, 16U, 10U, 2U, 128U },
+                     TensorShape{ 1U, 16U, 10U, 2U, 128U }
     }),
     ShapeDataset("Shape1",
     {
@@ -212,7 +274,9 @@ public:
         TensorShape{ 128U, 64U, 1U, 3U },
         TensorShape{ 9U, 1U, 3U },
         TensorShape{ 1U },
-        TensorShape{ 9U, 9U, 3U, 5U }
+        TensorShape{ 9U, 9U, 3U, 5U },
+        TensorShape{ 1U, 1U, 1U, 1U, 128U },
+        TensorShape{ 128U }
     }))
     {
     }
@@ -326,9 +390,7 @@ public:
     Large1DShapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 1921U },
-                     TensorShape{ 1245U },
-                     TensorShape{ 4160U }
+        TensorShape{ 1245U }
     })
     {
     }
@@ -341,9 +403,7 @@ public:
     Large2DShapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 1920U, 1080U },
-                     TensorShape{ 1245U, 652U },
-                     TensorShape{ 4160U, 3120U }
+        TensorShape{ 1245U, 652U }
     })
     {
     }
@@ -356,9 +416,7 @@ public:
     Large3DShapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 320U, 240U, 3U },
-                     TensorShape{ 383U, 653U, 2U },
-                     TensorShape{ 721U, 123U, 13U }
+        TensorShape{ 320U, 240U, 3U }
     })
     {
     }
@@ -371,9 +429,7 @@ public:
     Large4DShapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 320U, 123U, 3U, 3U },
-                     TensorShape{ 383U, 413U, 2U, 3U },
-                     TensorShape{ 517U, 123U, 13U, 2U }
+        TensorShape{ 320U, 123U, 3U, 3U }
     })
     {
     }
@@ -491,9 +547,7 @@ public:
     Large5x5Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 5U, 5U, 32U, 64U },
-                     TensorShape{ 5U, 5U, 51U, 13U },
-                     TensorShape{ 5U, 5U, 53U, 47U },
+        TensorShape{ 5U, 5U, 32U, 64U }
     })
     {
     }
@@ -506,9 +560,7 @@ public:
     Small5x1Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 5U, 1U, 7U, 4U },
-                     TensorShape{ 5U, 1U, 4U, 13U },
-                     TensorShape{ 5U, 1U, 3U, 5U },
+        TensorShape{ 5U, 1U, 7U, 4U }
     })
     {
     }
@@ -521,9 +573,7 @@ public:
     Large5x1Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 5U, 1U, 32U, 64U },
-                     TensorShape{ 5U, 1U, 51U, 13U },
-                     TensorShape{ 5U, 1U, 53U, 47U },
+        TensorShape{ 5U, 1U, 32U, 64U }
     })
     {
     }
@@ -536,9 +586,7 @@ public:
     Small1x5Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 1U, 5U, 7U, 4U },
-                     TensorShape{ 1U, 5U, 4U, 13U },
-                     TensorShape{ 1U, 5U, 3U, 5U },
+        TensorShape{ 1U, 5U, 7U, 4U }
     })
     {
     }
@@ -551,9 +599,7 @@ public:
     Large1x5Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 1U, 5U, 32U, 64U },
-                     TensorShape{ 1U, 5U, 51U, 13U },
-                     TensorShape{ 1U, 5U, 53U, 47U },
+        TensorShape{ 1U, 5U, 32U, 64U }
     })
     {
     }
@@ -566,9 +612,7 @@ public:
     Small1x7Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 1U, 7U, 7U, 4U },
-                     TensorShape{ 1U, 7U, 4U, 13U },
-                     TensorShape{ 1U, 7U, 3U, 5U },
+        TensorShape{ 1U, 7U, 7U, 4U }
     })
     {
     }
@@ -581,9 +625,7 @@ public:
     Large1x7Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 1U, 7U, 32U, 64U },
-                     TensorShape{ 1U, 7U, 51U, 13U },
-                     TensorShape{ 1U, 7U, 53U, 47U },
+        TensorShape{ 1U, 7U, 32U, 64U }
     })
     {
     }
@@ -596,9 +638,7 @@ public:
     Small7x7Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 7U, 7U, 7U, 4U },
-                     TensorShape{ 7U, 7U, 4U, 13U },
-                     TensorShape{ 7U, 7U, 3U, 5U },
+        TensorShape{ 7U, 7U, 7U, 4U }
     })
     {
     }
@@ -611,9 +651,7 @@ public:
     Large7x7Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 7U, 7U, 32U, 64U },
-                     TensorShape{ 7U, 7U, 51U, 13U },
-                     TensorShape{ 7U, 7U, 53U, 47U },
+        TensorShape{ 7U, 7U, 32U, 64U }
     })
     {
     }
@@ -626,9 +664,7 @@ public:
     Small7x1Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 7U, 1U, 7U, 4U },
-                     TensorShape{ 7U, 1U, 4U, 13U },
-                     TensorShape{ 7U, 1U, 3U, 5U },
+        TensorShape{ 7U, 1U, 7U, 4U }
     })
     {
     }
@@ -641,9 +677,7 @@ public:
     Large7x1Shapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 7U, 1U, 32U, 64U },
-                     TensorShape{ 7U, 1U, 51U, 13U },
-                     TensorShape{ 7U, 1U, 53U, 47U },
+        TensorShape{ 7U, 1U, 32U, 64U }
     })
     {
     }
@@ -686,9 +720,26 @@ public:
         : ShapeDataset("InputShape",
     {
         // Batch size 1
-                     TensorShape{ 32U, 37U, 3U },
+        TensorShape{ 32U, 37U, 3U },
                      // Batch size 4
-                     TensorShape{ 32U, 37U, 3U, 4U },
+                     TensorShape{ 6U, 9U, 5U, 4U },
+    })
+    {
+    }
+};
+
+class SmallDirectConv3DShapes final : public ShapeDataset
+{
+public:
+    SmallDirectConv3DShapes()
+        : ShapeDataset("InputShape",
+    {
+        // Batch size 2
+        TensorShape{ 1U, 3U, 4U, 5U, 2U },
+                     // Batch size 3
+                     TensorShape{ 7U, 27U, 3U, 6U, 3U },
+                     // Batch size 1
+                     TensorShape{ 32U, 37U, 13U, 1U, 1U },
     })
     {
     }
@@ -702,7 +753,7 @@ public:
         : ShapeDataset("InputShape",
     {
         // Batch size 1
-                     TensorShape{ 32U, 37U, 3U },
+        TensorShape{ 32U, 37U, 3U },
                      // Batch size 4
                      TensorShape{ 32U, 37U, 3U, 4U },
                      // Arbitrary batch size
@@ -754,9 +805,7 @@ public:
         TensorShape{ 3U, 3U, 48U, 120U },
                      TensorShape{ 1U, 3U, 24U, 240U },
                      TensorShape{ 3U, 1U, 12U, 480U },
-                     TensorShape{ 5U, 5U, 48U, 120U },
-                     TensorShape{ 1U, 5U, 24U, 240U },
-                     TensorShape{ 5U, 1U, 48U, 480U }
+                     TensorShape{ 5U, 5U, 48U, 120U }
     })
     {
     }
@@ -770,11 +819,7 @@ public:
         : ShapeDataset("Shape",
     {
         TensorShape{ 9U, 9U, 96U, 240U },
-                     TensorShape{ 7U, 9U, 48U, 480U },
-                     TensorShape{ 9U, 7U, 24U, 960U },
-                     TensorShape{ 13U, 13U, 96U, 240U },
-                     TensorShape{ 11U, 13U, 48U, 480U },
-                     TensorShape{ 13U, 11U, 24U, 960U }
+                     TensorShape{ 13U, 13U, 96U, 240U }
     })
     {
     }
@@ -850,7 +895,7 @@ public:
     SoftmaxLayerSmallShapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 9U, 9U },
+        TensorShape{ 1U, 9U },
                      TensorShape{ 256U, 10U },
                      TensorShape{ 353U, 8U },
                      TensorShape{ 781U, 5U },
@@ -866,9 +911,7 @@ public:
     SoftmaxLayerLargeShapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 1000U, 10U },
-                     TensorShape{ 3989U, 10U },
-                     TensorShape{ 7339U, 11U },
+        TensorShape{ 1000U, 10U }
 
     })
     {
@@ -883,10 +926,7 @@ public:
         : ShapeDataset("Shape",
     {
         TensorShape{ 9U, 9U, 9U, 9U },
-                     TensorShape{ 256U, 10U, 1U, 9U },
-                     TensorShape{ 353U, 8U, 2U },
-                     TensorShape{ 781U, 5U, 2U, 2U },
-                     TensorShape{ 781U, 11U, 1U, 2U },
+                     TensorShape{ 31U, 10U, 1U, 9U },
     })
     {
     }
@@ -901,7 +941,6 @@ public:
     {
         TensorShape{ 640U, 480U },
                      TensorShape{ 800U, 600U },
-                     TensorShape{ 1200U, 800U }
     })
     {
     }
@@ -987,8 +1026,7 @@ public:
         : ShapeDataset("Shape",
     {
         TensorShape{ 16U, 27U },
-                     TensorShape{ 533U, 171U },
-                     TensorShape{ 345U, 612U }
+                     TensorShape{ 345U, 171U }
     })
     {
     }
@@ -1002,7 +1040,6 @@ public:
         : ShapeDataset("Shape",
     {
         TensorShape{ 16U, 3U, 9U },
-                     TensorShape{ 533U, 19U, 9U },
                      TensorShape{ 345U, 34U, 18U }
     })
     {
@@ -1031,9 +1068,7 @@ public:
     Large2DNonMaxSuppressionShapes()
         : ShapeDataset("Shape",
     {
-        TensorShape{ 4U, 207U },
-                     TensorShape{ 4U, 113U },
-                     TensorShape{ 4U, 264U }
+        TensorShape{ 4U, 113U }
     })
     {
     }
@@ -1042,4 +1077,4 @@ public:
 } // namespace datasets
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_SHAPE_DATASETS_H__ */
+#endif /* ARM_COMPUTE_TEST_SHAPE_DATASETS_H */

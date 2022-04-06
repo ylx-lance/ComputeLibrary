@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -22,12 +22,13 @@
  * SOFTWARE.
  */
 #include "arm_compute/runtime/CL/CLScheduler.h"
-#include "arm_compute/runtime/CL/functions/CLComputeAllAnchors.h"
 #include "arm_compute/runtime/CL/functions/CLGenerateProposalsLayer.h"
 #include "arm_compute/runtime/CL/functions/CLPermute.h"
 #include "arm_compute/runtime/CL/functions/CLSlice.h"
+#include "src/core/CL/kernels/CLGenerateProposalsLayerKernel.h"
 #include "tests/CL/CLAccessor.h"
 #include "tests/CL/CLArrayAccessor.h"
+#include "tests/CL/Helper.h"
 #include "tests/Globals.h"
 #include "tests/framework/Macros.h"
 #include "tests/framework/datasets/Datasets.h"
@@ -43,6 +44,8 @@ namespace validation
 {
 namespace
 {
+using CLComputeAllAnchors = CLSynthetizeFunction<CLComputeAllAnchorsKernel>;
+
 template <typename U, typename T>
 inline void fill_tensor(U &&tensor, const std::vector<T> &v)
 {
@@ -82,6 +85,8 @@ const auto ComputeAllInfoDataset = framework::dataset::make("ComputeAllInfo",
     ComputeAnchorsInfo(100U, 100U, 1. / 4.f),
 
 });
+
+constexpr AbsoluteTolerance<int16_t> tolerance_qsymm16(1);
 } // namespace
 
 TEST_SUITE(CL)
@@ -283,9 +288,7 @@ DATA_TEST_CASE(IntegrationTestCaseGenerateProposals, framework::DatasetMode::ALL
         -2.071168373801788e-03, 8.613893943683627e-03, 9.411190295341036e-03, -6.129018930548372e-03
     };
 
-    std::vector<float> anchors_vector{ -26, -19, 87, 86, -81, -27, 58, 63 };
-    ;
-
+    std::vector<float>  anchors_vector{ -26, -19, 87, 86, -81, -27, 58, 63 };
     SimpleTensor<float> proposals_expected(TensorShape(5, 9), DataType::F32);
     fill_tensor(proposals_expected, std::vector<float>
     {
@@ -364,7 +367,7 @@ DATA_TEST_CASE(IntegrationTestCaseGenerateProposals, framework::DatasetMode::ALL
     proposals_final.allocator()->allocate();
     select_proposals.run();
 
-    // Select the first N entries of the proposals
+    // Select the first N entries of the scores
     CLTensor scores_final;
     CLSlice  select_scores;
     select_scores.configure(&scores_out, &scores_final, Coordinates(0), Coordinates(N));
@@ -394,6 +397,22 @@ FIXTURE_DATA_TEST_CASE(ComputeAllAnchors, CLComputeAllAnchorsFixture<half>, fram
 }
 TEST_SUITE_END() // FP16
 TEST_SUITE_END() // Float
+
+template <typename T>
+using CLComputeAllAnchorsQuantizedFixture = ComputeAllAnchorsQuantizedFixture<CLTensor, CLAccessor, CLComputeAllAnchors, T>;
+
+TEST_SUITE(Quantized)
+TEST_SUITE(QASYMM8)
+FIXTURE_DATA_TEST_CASE(ComputeAllAnchors, CLComputeAllAnchorsQuantizedFixture<int16_t>, framework::DatasetMode::ALL,
+                       combine(combine(combine(framework::dataset::make("NumAnchors", { 2, 4, 8 }), ComputeAllInfoDataset),
+                                       framework::dataset::make("DataType", { DataType::QSYMM16 })),
+                               framework::dataset::make("QuantInfo", { QuantizationInfo(0.125f, 0) })))
+{
+    // Validate output
+    validate(CLAccessor(_target), _reference, tolerance_qsymm16);
+}
+TEST_SUITE_END() // QASYMM8
+TEST_SUITE_END() // Quantized
 
 TEST_SUITE_END() // GenerateProposals
 TEST_SUITE_END() // CL

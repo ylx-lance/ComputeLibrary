@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_VALIDATION_UTILS_H__
-#define __ARM_COMPUTE_TEST_VALIDATION_UTILS_H__
+#ifndef ARM_COMPUTE_TEST_VALIDATION_UTILS_H
+#define ARM_COMPUTE_TEST_VALIDATION_UTILS_H
 
 #include "arm_compute/core/Types.h"
 #include "tests/Globals.h"
-#include "tests/ILutAccessor.h"
 #include "tests/Types.h"
 
 #include <array>
@@ -56,6 +55,9 @@ inline bool is_valid_pixel_index(int x, int y, int width, int height, int border
     return ((x >= -border_size) && (y >= -border_size) && (x < (width + border_size)) && (y < height + border_size));
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstrict-overflow"
+
 // Return a tensor element at a specified coordinate with different border modes
 template <typename T>
 T tensor_elem_at(const SimpleTensor<T> &src, Coordinates coord, BorderMode border_mode, T constant_border_value)
@@ -83,6 +85,8 @@ T tensor_elem_at(const SimpleTensor<T> &src, Coordinates coord, BorderMode borde
 
     return src[coord2index(src.shape(), coord)];
 }
+
+#pragma GCC diagnostic pop
 
 template <typename T>
 T bilinear_policy(const SimpleTensor<T> &in, Coordinates id, float xn, float yn, BorderMode border_mode, T constant_border_value);
@@ -118,28 +122,8 @@ void apply_2d_spatial_filter(Coordinates coord, const SimpleTensor<T> &src, Simp
 
 RawTensor transpose(const RawTensor &src, int chunk_width = 1);
 
-/** Fill matrix random.
- *
- * @param[in,out] matrix Matrix
- */
-template <std::size_t SIZE>
-inline void fill_warp_matrix(std::array<float, SIZE> &matrix)
-{
-    std::mt19937                          gen(library.get()->seed());
-    std::uniform_real_distribution<float> dist(-1, 1);
-    for(auto &x : matrix)
-    {
-        x = dist(gen);
-    }
-    if(SIZE == 9)
-    {
-        // This is only used in Warp Perspective, we set M[3][3] = 1 so that Z0 is not 0 and we avoid division by 0.
-        matrix[8] = 1.f;
-    }
-}
-
 bool valid_bilinear_policy(float xn, float yn, int width, int height, BorderMode border_mode);
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_VALIDATION_UTILS_H__ */
+#endif /* ARM_COMPUTE_TEST_VALIDATION_UTILS_H */

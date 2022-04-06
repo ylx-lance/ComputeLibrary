@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_ROIALIGNLAYER_H__
-#define __ARM_COMPUTE_TEST_ROIALIGNLAYER_H__
+#ifndef ARM_COMPUTE_TEST_ROIALIGNLAYER_H
+#define ARM_COMPUTE_TEST_ROIALIGNLAYER_H
 
 #include "arm_compute/core/Types.h"
 #include "tests/SimpleTensor.h"
@@ -36,10 +36,10 @@ namespace validation
 {
 namespace reference
 {
-template <typename T>
-SimpleTensor<T> roi_align_layer(const SimpleTensor<T> &src, const SimpleTensor<T> &rois, const ROIPoolingLayerInfo &pool_info);
+template <typename T, typename TRois>
+SimpleTensor<T> roi_align_layer(const SimpleTensor<T> &src, const SimpleTensor<TRois> &rois, const ROIPoolingLayerInfo &pool_info, const QuantizationInfo &output_qinfo);
 } // namespace reference
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_ROIALIGNLAYER_H__ */
+#endif /* ARM_COMPUTE_TEST_ROIALIGNLAYER_H */

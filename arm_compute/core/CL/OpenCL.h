@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_OPENCL_H__
-#define __ARM_COMPUTE_OPENCL_H__
+#ifndef ARM_COMPUTE_OPENCL_H
+#define ARM_COMPUTE_OPENCL_H
 
 #include <string>
 #include <utility>
@@ -37,10 +37,11 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Weffc++"
 #pragma GCC diagnostic ignored "-Wignored-qualifiers"
+#pragma GCC diagnostic ignored "-Wunused-parameter"
 #if defined(__GNUG__) && __GNUG__ >= 8
 #pragma GCC diagnostic ignored "-Wcatch-value"
 #endif // defined(__GNUG__) && __GNUG__ >= 8
-#include <CL/cl2.hpp>
+#include <CL/opencl.hpp> // include new hpp header instead of cl2.hpp
 #pragma GCC diagnostic pop
 
 namespace cl
@@ -59,11 +60,14 @@ bool opencl_is_available();
 /** Class for loading OpenCL symbols. */
 class CLSymbols final
 {
-private:
-    CLSymbols() = default;
-    void load_symbols(void *handle);
-
 public:
+    /** Default Constructor */
+    CLSymbols() noexcept(false);
+    /** Load OpenCL symbols from handle
+     *
+     * @param[in] handle Handle to load symbols from
+     */
+    void load_symbols(void *handle);
     /** Get the static instance of CLSymbols.
      *
      * @return The static instance of CLSymbols.
@@ -88,6 +92,7 @@ public:
     DECLARE_FUNCTION_PTR(clCreateContext);
     DECLARE_FUNCTION_PTR(clCreateContextFromType);
     DECLARE_FUNCTION_PTR(clCreateCommandQueue);
+    DECLARE_FUNCTION_PTR(clCreateCommandQueueWithProperties);
     DECLARE_FUNCTION_PTR(clGetContextInfo);
     DECLARE_FUNCTION_PTR(clBuildProgram);
     DECLARE_FUNCTION_PTR(clEnqueueNDRangeKernel);
@@ -119,6 +124,7 @@ public:
     DECLARE_FUNCTION_PTR(clGetDeviceIDs);
     DECLARE_FUNCTION_PTR(clGetMemObjectInfo);
     DECLARE_FUNCTION_PTR(clRetainEvent);
+    DECLARE_FUNCTION_PTR(clGetPlatformInfo);
     DECLARE_FUNCTION_PTR(clGetPlatformIDs);
     DECLARE_FUNCTION_PTR(clGetKernelWorkGroupInfo);
     DECLARE_FUNCTION_PTR(clGetCommandQueueInfo);
@@ -130,6 +136,8 @@ public:
     DECLARE_FUNCTION_PTR(clEnqueueSVMUnmap);
     DECLARE_FUNCTION_PTR(clEnqueueMarker);
     DECLARE_FUNCTION_PTR(clWaitForEvents);
+    DECLARE_FUNCTION_PTR(clCreateImage);
+    DECLARE_FUNCTION_PTR(clSetKernelExecInfo);
 
     // Third-party extensions
     DECLARE_FUNCTION_PTR(clImportMemoryARM);
@@ -137,7 +145,7 @@ public:
 #undef DECLARE_FUNCTION_PTR
 
 private:
-    std::pair<bool, bool> _loaded{ false, false };
+    std::pair<bool, bool> _loaded;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_OPENCL_H__ */
+#endif /* ARM_COMPUTE_OPENCL_H */

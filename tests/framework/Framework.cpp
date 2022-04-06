@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,13 +24,18 @@
 #include "Framework.h"
 
 #include "arm_compute/runtime/Scheduler.h"
-#include "support/ToolchainSupport.h"
+#include "tests/framework/ParametersLibrary.h"
+#include "tests/framework/TestFilter.h"
+
 #ifdef ARM_COMPUTE_CL
+#include "arm_compute/runtime/CL/CLRuntimeContext.h"
 #include "arm_compute/runtime/CL/CLScheduler.h"
+
 #endif /* ARM_COMPUTE_CL */
 
 #include <chrono>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <type_traits>
 
@@ -38,9 +43,14 @@ namespace arm_compute
 {
 namespace test
 {
+std::unique_ptr<ParametersLibrary> parameters;
+
 namespace framework
 {
+std::unique_ptr<InstrumentsInfo> instruments_info;
+
 Framework::Framework()
+    : _test_filter(nullptr)
 {
     _available_instruments.emplace(std::pair<InstrumentType, ScaleFactor>(InstrumentType::WALL_CLOCK_TIMESTAMPS, ScaleFactor::NONE), Instrument::make_instrument<WallClockTimestamps, ScaleFactor::NONE>);
     _available_instruments.emplace(std::pair<InstrumentType, ScaleFactor>(InstrumentType::WALL_CLOCK_TIMESTAMPS, ScaleFactor::TIME_MS),
@@ -83,6 +93,8 @@ Framework::Framework()
     _available_instruments.emplace(std::pair<InstrumentType, ScaleFactor>(InstrumentType::OPENCL_MEMORY_USAGE, ScaleFactor::SCALE_1M),
                                    Instrument::make_instrument<OpenCLMemoryUsage, ScaleFactor::SCALE_1M>);
 #endif /* ARM_COMPUTE_CL */
+
+    instruments_info = std::make_unique<InstrumentsInfo>();
 }
 
 std::set<InstrumentsDescription> Framework::available_instruments() const
@@ -115,14 +127,15 @@ Framework &Framework::get()
     return instance;
 }
 
-void Framework::init(const std::vector<framework::InstrumentsDescription> &instruments, int num_iterations, DatasetMode mode, const std::string &name_filter, const std::string &id_filter,
-                     LogLevel log_level)
+void Framework::init(const FrameworkConfig &config)
 {
-    _test_filter    = TestFilter(mode, name_filter, id_filter);
-    _num_iterations = num_iterations;
-    _log_level      = log_level;
+    _test_filter.reset(new TestFilter(config.mode, config.name_filter, config.id_filter));
+    _num_iterations = config.num_iterations;
+    _log_level      = config.log_level;
+    _cooldown_sec   = config.cooldown_sec;
+    _configure_only = config.configure_only;
 
-    _instruments = std::set<framework::InstrumentsDescription>(instruments.begin(), instruments.end());
+    _instruments = std::set<framework::InstrumentsDescription>(std::begin(config.instruments), std::end(config.instruments));
 }
 
 std::string Framework::current_suite_name() const
@@ -196,6 +209,7 @@ void Framework::log_test_end(const TestInfo &info)
     {
         func_on_all_printers([&](Printer * p)
         {
+            p->print_profiler_header(_test_results.at(info).header_data);
             p->print_measurements(_test_results.at(info).measurements);
         });
     }
@@ -515,10 +529,11 @@ void Framework::run_test(const TestInfo &info, TestCaseFactory &test_factory)
     {
         if(_stop_on_error)
         {
-            throw std::runtime_error("Abort on first error.");
+            throw std::runtime_error("Abandon on first error.");
         }
     }
 
+    result.header_data  = profiler.header();
     result.measurements = profiler.measurements();
 
     set_test_result(info, result);
@@ -548,7 +563,7 @@ bool Framework::run()
         const std::string test_case_name = test_factory->name();
         const TestInfo    test_info{ id, test_case_name, test_factory->mode(), test_factory->status() };
 
-        if(_test_filter.is_selected(test_info))
+        if(_test_filter->is_selected(test_info))
         {
 #ifdef ARM_COMPUTE_CL
             // Every 100 tests, reset the OpenCL context to release the allocated memory
@@ -565,9 +580,13 @@ bool Framework::run()
                 CLScheduler::get().set_queue(new_queue);
             }
 #endif // ARM_COMPUTE_CL
+
             run_test(test_info, *test_factory);
 
             ++id_run_test;
+
+            // Run test delay
+            sleep_in_seconds(_cooldown_sec);
         }
 
         ++id;
@@ -613,6 +632,7 @@ void Framework::print_test_results(Printer &printer) const
     for(const auto &test : _test_results)
     {
         printer.print_test_header(test.first);
+        printer.print_profiler_header(test.second.header_data);
         printer.print_measurements(test.second.measurements);
         printer.print_test_footer();
     }
@@ -662,9 +682,9 @@ std::vector<TestInfo> Framework::test_infos() const
 
     for(const auto &factory : _test_factories)
     {
-        TestInfo test_info{ id, factory->name(), factory->mode(), factory->status() };
+        const TestInfo test_info{ id, factory->name(), factory->mode(), factory->status() };
 
-        if(_test_filter.is_selected(test_info))
+        if(_test_filter->is_selected(test_info))
         {
             ids.emplace_back(std::move(test_info));
         }
@@ -678,6 +698,27 @@ std::vector<TestInfo> Framework::test_infos() const
 LogLevel Framework::log_level() const
 {
     return _log_level;
+}
+
+void Framework::set_instruments_info(InstrumentsInfo instr_info)
+{
+    ARM_COMPUTE_ERROR_ON(instruments_info == nullptr);
+    *instruments_info = instr_info;
+}
+
+bool Framework::configure_only() const
+{
+    return _configure_only;
+}
+
+bool Framework::new_fixture_call() const
+{
+    return _new_fixture_call;
+}
+
+void Framework::set_new_fixture_call(bool val)
+{
+    _new_fixture_call = val;
 }
 } // namespace framework
 } // namespace test

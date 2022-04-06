@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_BACKEND_REGISTRY_H__
-#define __ARM_COMPUTE_GRAPH_BACKEND_REGISTRY_H__
+#ifndef ARM_COMPUTE_GRAPH_BACKEND_REGISTRY_H
+#define ARM_COMPUTE_GRAPH_BACKEND_REGISTRY_H
 
 #include "arm_compute/graph/IDeviceBackend.h"
 #include "arm_compute/graph/Types.h"
-#include "support/ToolchainSupport.h"
 
 #include <map>
 #include <memory>
@@ -93,9 +92,9 @@ private:
 template <typename T>
 inline void BackendRegistry::add_backend(Target target)
 {
-    _registered_backends[target] = support::cpp14::make_unique<T>();
+    _registered_backends[target] = std::make_unique<T>();
 }
 } // namespace backends
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_BACKEND_REGISTRY_H__ */
+#endif /* ARM_COMPUTE_GRAPH_BACKEND_REGISTRY_H */

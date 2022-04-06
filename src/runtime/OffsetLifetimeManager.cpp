@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,7 +27,6 @@
 #include "arm_compute/runtime/IAllocator.h"
 #include "arm_compute/runtime/IMemoryGroup.h"
 #include "arm_compute/runtime/OffsetMemoryPool.h"
-#include "support/ToolchainSupport.h"
 
 #include <algorithm>
 #include <cmath>
@@ -49,10 +48,15 @@ OffsetLifetimeManager::OffsetLifetimeManager()
 {
 }
 
+const OffsetLifetimeManager::info_type &OffsetLifetimeManager::info() const
+{
+    return _blob;
+}
+
 std::unique_ptr<IMemoryPool> OffsetLifetimeManager::create_pool(IAllocator *allocator)
 {
     ARM_COMPUTE_ERROR_ON(allocator == nullptr);
-    return support::cpp14::make_unique<OffsetMemoryPool>(allocator, _blob);
+    return std::make_unique<OffsetMemoryPool>(allocator, _blob);
 }
 
 MappingType OffsetLifetimeManager::mapping_type() const

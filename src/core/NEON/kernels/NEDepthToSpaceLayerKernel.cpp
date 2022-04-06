@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,14 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/NEON/kernels/NEDepthToSpaceLayerKernel.h"
+#include "src/core/NEON/kernels/NEDepthToSpaceLayerKernel.h"
 
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/ITensor.h"
-#include "arm_compute/core/NEON/wrapper/wrapper.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/NEON/wrapper/wrapper.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+
 #include <arm_neon.h>
 #include <cstdint>
 
@@ -41,6 +44,7 @@ namespace
 Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, int32_t block_shape)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON(input->num_dimensions() > 4);
     ARM_COMPUTE_RETURN_ERROR_ON(block_shape < 2);
 
@@ -63,14 +67,14 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, i
 } // namespace
 
 NEDepthToSpaceLayerKernel::NEDepthToSpaceLayerKernel()
-    : _input(nullptr), _output(nullptr), _block_shape()
+    : _input(nullptr), _output(nullptr), _block_shape(), _data_layout(DataLayout::UNKNOWN)
 {
 }
 
 void NEDepthToSpaceLayerKernel::configure(const ITensor *input, ITensor *output, int32_t block_shape)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
-    TensorShape output_shape = compute_depth_to_space_shape(input->info(), block_shape);
+    TensorShape output_shape = compute_depth_to_space_shape(input->info()->tensor_shape(), input->info()->data_layout(), block_shape);
     // Output auto inizialitation if not yet initialized
     auto_init_if_empty(*output->info(), input->info()->clone()->set_tensor_shape(output_shape));
 
@@ -80,6 +84,7 @@ void NEDepthToSpaceLayerKernel::configure(const ITensor *input, ITensor *output,
     _input       = input;
     _output      = output;
     _block_shape = block_shape;
+    _data_layout = input->info()->data_layout();
 
     // Configure kernel window
     Window win = calculate_max_window(*input->info(), Steps());
@@ -99,7 +104,7 @@ void NEDepthToSpaceLayerKernel::run(const Window &window, const ThreadInfo &info
     ARM_COMPUTE_ERROR_ON_UNCONFIGURED_KERNEL(this);
     ARM_COMPUTE_ERROR_ON_INVALID_SUBWINDOW(ICPPKernel::window(), window);
 
-    const int idx_channel  = get_data_layout_dimension_index(_input->info()->data_layout(), DataLayoutDimension::CHANNEL);
+    const int idx_channel  = get_data_layout_dimension_index(_data_layout, DataLayoutDimension::CHANNEL);
     const int depth_size   = _input->info()->dimension(idx_channel);
     const int r            = (depth_size / (_block_shape * _block_shape));
     const int element_size = _input->info()->element_size();
@@ -112,7 +117,7 @@ void NEDepthToSpaceLayerKernel::run(const Window &window, const ThreadInfo &info
     slice_out.set(Window::DimZ, Window::Dimension(0, 0, 0));
 
     // Main loop for NCHW and NHWC
-    if(_input->info()->data_layout() == DataLayout::NCHW)
+    if(_data_layout == DataLayout::NCHW)
     {
         Window slice_in = window.first_slice_window_2D();
         do

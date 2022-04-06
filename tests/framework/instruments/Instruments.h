@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,15 +24,16 @@
 #ifndef ARM_COMPUTE_TEST_INSTRUMENTS
 #define ARM_COMPUTE_TEST_INSTRUMENTS
 
-#if !defined(BARE_METAL)
+#if !defined(BARE_METAL) && !defined(__APPLE__) && !defined(__OpenBSD__)
 #include "MaliCounter.h"
 #include "OpenCLMemoryUsage.h"
 #include "OpenCLTimer.h"
 #include "PMUCounter.h"
-#endif /* !defined(BARE_METAL) */
+#endif /* !defined(BARE_METAL) && !defined(__APPLE__) && !defined(__OpenBSD__) */
 #include "SchedulerTimer.h"
 #include "WallClockTimer.h"
 
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -58,6 +59,12 @@ enum class InstrumentType : unsigned int
     OPENCL_TIMESTAMPS       = 0x0800,
     SCHEDULER_TIMESTAMPS    = 0x0900,
 };
+
+struct InstrumentsInfo
+{
+    std::vector<ISchedulerUser *> _scheduler_users{};
+};
+extern std::unique_ptr<InstrumentsInfo> instruments_info;
 
 using InstrumentsDescription = std::pair<InstrumentType, ScaleFactor>;
 

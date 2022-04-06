@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -49,6 +49,9 @@ SimpleTensor<T> compute_all_anchors(const SimpleTensor<T> &anchors, const Comput
     T              *all_anchors_ptr = all_anchors.data();
 
     // Iterate over the input grid and anchors
+#if defined(_OPENMP)
+    #pragma omp parallel for schedule(dynamic, 1) collapse(3)
+#endif /* _OPENMP */
     for(int y = 0; y < height; y++)
     {
         for(int x = 0; x < width; x++)
@@ -73,6 +76,15 @@ SimpleTensor<T> compute_all_anchors(const SimpleTensor<T> &anchors, const Comput
 }
 template SimpleTensor<float> compute_all_anchors(const SimpleTensor<float> &anchors, const ComputeAnchorsInfo &info);
 template SimpleTensor<half> compute_all_anchors(const SimpleTensor<half> &anchors, const ComputeAnchorsInfo &info);
+
+template <>
+SimpleTensor<int16_t> compute_all_anchors(const SimpleTensor<int16_t> &anchors, const ComputeAnchorsInfo &info)
+{
+    SimpleTensor<float>   anchors_tmp     = convert_from_symmetric(anchors);
+    SimpleTensor<float>   all_anchors_tmp = compute_all_anchors(anchors_tmp, info);
+    SimpleTensor<int16_t> all_anchors     = convert_to_symmetric<int16_t>(all_anchors_tmp, anchors.quantization_info());
+    return all_anchors;
+}
 } // namespace reference
 } // namespace validation
 } // namespace test

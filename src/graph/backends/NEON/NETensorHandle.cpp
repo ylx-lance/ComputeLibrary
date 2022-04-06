@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,8 +23,8 @@
  */
 #include "arm_compute/graph/backends/NEON/NETensorHandle.h"
 
-#include "arm_compute/core/utils/misc/Cast.h"
 #include "arm_compute/runtime/MemoryGroup.h"
+#include "support/Cast.h"
 
 namespace arm_compute
 {
@@ -52,8 +52,7 @@ void NETensorHandle::manage(IMemoryGroup *mg)
 {
     if(mg != nullptr)
     {
-        auto *ne_mg = arm_compute::utils::cast::polymorphic_downcast<MemoryGroup *>(mg);
-        ne_mg->manage(&_tensor);
+        mg->manage(&_tensor);
     }
 }
 

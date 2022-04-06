@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -28,9 +28,11 @@
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
 #include "arm_compute/core/utils/quantization/AsymmHelpers.h"
 #include "arm_compute/runtime/CL/CLScheduler.h"
-#include "utils/TypePrinter.h"
+#include "src/core/CL/kernels/CLDeconvolutionReshapeOutputKernel.h"
+#include "src/core/CL/kernels/CLFillBorderKernel.h"
 
-#include <memory>
+#include "src/common/utils/Log.h"
+
 #include <tuple>
 
 namespace arm_compute
@@ -62,6 +64,33 @@ std::pair<Coordinates, Coordinates> compute_start_end_slice_coordinates(const IT
 
     return { start, end };
 }
+Status construct_gemmlowp_output_stage(const ITensorInfo *input, const ITensorInfo *weights, const ITensorInfo *output, GEMMLowpOutputStageInfo &output_stage_info)
+{
+    const auto data_type = input->data_type();
+
+    if(is_data_type_quantized_asymmetric(data_type))
+    {
+        const UniformQuantizationInfo iq_info = input->quantization_info().uniform();
+        const UniformQuantizationInfo wq_info = weights->quantization_info().uniform();
+        const UniformQuantizationInfo oq_info = output->quantization_info().uniform();
+
+        float multiplier = iq_info.scale * wq_info.scale / oq_info.scale;
+        int   output_multiplier(0);
+        int   output_shift(0);
+        ARM_COMPUTE_RETURN_ON_ERROR(quantization::calculate_quantized_multiplier(multiplier, &output_multiplier, &output_shift));
+
+        output_stage_info.type                = GEMMLowpOutputStageType::QUANTIZE_DOWN_FIXEDPOINT;
+        output_stage_info.gemmlowp_multiplier = output_multiplier;
+        output_stage_info.gemmlowp_shift      = output_shift;
+        output_stage_info.gemmlowp_offset     = oq_info.offset;
+        const auto min_max_bound              = get_min_max(data_type);
+        output_stage_info.gemmlowp_min_bound  = (std::get<0>(min_max_bound)).get<int32_t>();
+        output_stage_info.gemmlowp_max_bound  = (std::get<1>(min_max_bound)).get<int32_t>();
+        output_stage_info.output_data_type    = data_type;
+    }
+    return Status{};
+}
+
 } // namespace
 
 CLGEMMDeconvolutionLayer::CLGEMMDeconvolutionLayer(std::shared_ptr<IMemoryManager> memory_manager) // NOLINT
@@ -73,7 +102,7 @@ CLGEMMDeconvolutionLayer::CLGEMMDeconvolutionLayer(std::shared_ptr<IMemoryManage
       _permute_weights_to_nhwc(),
       _reshape_weights(),
       _transpose_weights(),
-      _deconv_reshape(),
+      _deconv_reshape(std::make_unique<CLDeconvolutionReshapeOutputKernel>()),
       _slice_gemm(),
       _gemmlowp_final(),
       _reshaped_weights(),
@@ -90,10 +119,12 @@ CLGEMMDeconvolutionLayer::CLGEMMDeconvolutionLayer(std::shared_ptr<IMemoryManage
 {
 }
 
+CLGEMMDeconvolutionLayer::~CLGEMMDeconvolutionLayer() = default;
+
 Status CLGEMMDeconvolutionLayer::validate(const ITensorInfo *input, const ITensorInfo *weights, const ITensorInfo *bias, const ITensorInfo *output, const PadStrideInfo &deconv_info)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, weights, output);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::F32, DataType::F16, DataType::QASYMM8);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::F32, DataType::F16, DataType::QASYMM8, DataType::QASYMM8_SIGNED);
     ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input, weights);
     ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_LAYOUT(input, weights);
 
@@ -141,28 +172,30 @@ Status CLGEMMDeconvolutionLayer::validate(const ITensorInfo *input, const ITenso
     TensorInfo gemm_output_info = reshaped_t_info.clone()->set_tensor_shape(gemm_output_shape).set_is_resizable(true);
     GEMMInfo   gemm_info(false, false, true, input->dimension(idx_h), true);
 
+    GEMMLowpOutputStageInfo output_stage_info;
+
     if(is_quantized)
     {
         ARM_COMPUTE_RETURN_ON_ERROR(CLGEMMLowpMatrixMultiplyCore::validate(&input->clone()->set_tensor_shape(nhwc_input_shape), &reshaped_t_info, nullptr, &gemm_output_info.set_data_type(DataType::S32),
                                                                            gemm_info));
+        ARM_COMPUTE_RETURN_ON_ERROR(construct_gemmlowp_output_stage(input, weights, output, output_stage_info));
     }
     else
     {
         ARM_COMPUTE_RETURN_ON_ERROR(CLGEMM::validate(&input->clone()->set_tensor_shape(nhwc_input_shape).set_is_resizable(true), &reshaped_t_info, nullptr, &gemm_output_info, 1.0f, 0.0f, gemm_info));
     }
 
-    auto out_dims = deconvolution_output_dimensions(input->dimension(idx_w), input->dimension(idx_h), weights->dimension(idx_w), weights->dimension(idx_h),
-                                                    0, 0, deconv_info.stride().first, deconv_info.stride().second);
-    const TensorShape deconv_shape       = misc::shape_calculator::compute_deconvolution_output_shape(out_dims, *input, *weights);
-    TensorInfo        col2im_output_info = gemm_output_info.clone()->set_tensor_shape(deconv_shape).set_is_resizable(true);
+    const PadStrideInfo stride_info(deconv_info.stride().first, deconv_info.stride().second);
+    auto                out_dims           = deconvolution_output_dimensions(input->dimension(idx_w), input->dimension(idx_h), weights->dimension(idx_w), weights->dimension(idx_h), stride_info);
+    const TensorShape   deconv_shape       = misc::shape_calculator::compute_deconvolution_output_shape(out_dims, *input, *weights);
+    TensorInfo          col2im_output_info = gemm_output_info.clone()->set_tensor_shape(deconv_shape).set_is_resizable(true);
 
     if(padded_input && is_quantized)
     {
         const auto start_end = compute_start_end_slice_coordinates(col2im_output_info, deconv_info, is_nchw);
         ARM_COMPUTE_RETURN_ON_ERROR(CLDeconvolutionReshapeOutputKernel::validate(&gemm_output_info, bias, &col2im_output_info, input, weights, deconv_info));
-        ARM_COMPUTE_RETURN_ON_ERROR(CLGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint::validate(&col2im_output_info, nullptr,
-                                                                                                  &col2im_output_info.clone()->set_is_resizable(true).set_data_type(DataType::QASYMM8)));
-        ARM_COMPUTE_RETURN_ON_ERROR(CLSlice::validate(&col2im_output_info.clone()->set_is_resizable(true).set_data_type(DataType::QASYMM8), output, start_end.first, start_end.second));
+        ARM_COMPUTE_RETURN_ON_ERROR(CLGEMMLowpOutputStage::validate(&col2im_output_info, nullptr, &col2im_output_info.clone()->set_is_resizable(true).set_data_type(input->data_type()), output_stage_info));
+        ARM_COMPUTE_RETURN_ON_ERROR(CLSlice::validate(&col2im_output_info.clone()->set_is_resizable(true).set_data_type(input->data_type()), output, start_end.first, start_end.second));
     }
     else if(padded_input)
     {
@@ -173,7 +206,7 @@ Status CLGEMMDeconvolutionLayer::validate(const ITensorInfo *input, const ITenso
     else if(is_quantized)
     {
         ARM_COMPUTE_RETURN_ON_ERROR(CLDeconvolutionReshapeOutputKernel::validate(&gemm_output_info, bias, &col2im_output_info, input, weights, deconv_info));
-        ARM_COMPUTE_RETURN_ON_ERROR(CLGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint::validate(&col2im_output_info, nullptr, output));
+        ARM_COMPUTE_RETURN_ON_ERROR(CLGEMMLowpOutputStage::validate(&col2im_output_info, nullptr, output, output_stage_info));
     }
     else
     {
@@ -185,12 +218,19 @@ Status CLGEMMDeconvolutionLayer::validate(const ITensorInfo *input, const ITenso
 
 void CLGEMMDeconvolutionLayer::configure(const ICLTensor *input, const ICLTensor *weights, const ICLTensor *bias, ICLTensor *output, const PadStrideInfo &deconv_info)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, weights, bias, output, deconv_info);
+}
+
+void CLGEMMDeconvolutionLayer::configure(const CLCompileContext &compile_context, const ICLTensor *input, const ICLTensor *weights, const ICLTensor *bias, ICLTensor *output,
+                                         const PadStrideInfo &deconv_info)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, weights, output);
     ARM_COMPUTE_ERROR_THROW_ON(CLGEMMDeconvolutionLayer::validate(input->info(),
                                                                   weights->info(),
                                                                   bias != nullptr ? bias->info() : nullptr,
                                                                   output->info(),
                                                                   deconv_info));
+    ARM_COMPUTE_LOG_PARAMS(input, weights, bias, output, deconv_info);
 
     _original_weights = weights;
     _padded_input     = deconv_info.pad_bottom() > 0 || deconv_info.pad_left() > 0 || deconv_info.pad_right() > 0 || deconv_info.pad_top() > 0;
@@ -207,9 +247,9 @@ void CLGEMMDeconvolutionLayer::configure(const ICLTensor *input, const ICLTensor
     if(_is_nchw)
     {
         _memory_group.manage(&_permuted_input);
-        _permute_input_to_nhwc.configure(input, &_permuted_input, PermutationVector(2U, 0U, 1U));
+        _permute_input_to_nhwc.configure(compile_context, input, &_permuted_input, PermutationVector(2U, 0U, 1U));
 
-        _permute_weights_to_nhwc.configure(weights, &_permuted_weights, PermutationVector(2U, 0U, 1U));
+        _permute_weights_to_nhwc.configure(compile_context, weights, &_permuted_weights, PermutationVector(2U, 0U, 1U));
 
         input_to_use   = &_permuted_input;
         weights_to_use = &_permuted_weights;
@@ -221,8 +261,8 @@ void CLGEMMDeconvolutionLayer::configure(const ICLTensor *input, const ICLTensor
                                                    1,
                                                    input->info()->data_type(), weights->info()->quantization_info()));
 
-    _reshape_weights.configure(weights_to_use, &_reshaped_weights);
-    _transpose_weights.configure(&_reshaped_weights, &_reshaped_weights_t);
+    _reshape_weights.configure(compile_context, weights_to_use, &_reshaped_weights);
+    _transpose_weights.configure(compile_context, &_reshaped_weights, &_reshaped_weights_t);
 
     const size_t idx_h = get_data_layout_dimension_index(input->info()->data_layout(), DataLayoutDimension::HEIGHT);
     GEMMInfo     gemm_info(false, false, true, input->info()->dimension(idx_h), true);
@@ -230,11 +270,22 @@ void CLGEMMDeconvolutionLayer::configure(const ICLTensor *input, const ICLTensor
     // Configure output stage for asymmetric quantized types
     if(_is_quantized)
     {
-        _mm_gemmlowp.configure(input_to_use, &_reshaped_weights_t, nullptr, &_gemm_output, gemm_info);
+        // gemmlowp adds the offsets (instead of subtracting them). Thus, we need to negate the original
+        // and restore them back to make it work properly.
+        QuantizationInfo iq_info = input->info()->quantization_info();
+        QuantizationInfo wq_info = weights->info()->quantization_info();
+
+        input_to_use->info()->set_quantization_info(QuantizationInfo(iq_info.uniform().scale, -iq_info.uniform().offset));
+        _reshaped_weights_t.info()->set_quantization_info(QuantizationInfo(wq_info.uniform().scale, -wq_info.uniform().offset));
+
+        _mm_gemmlowp.configure(compile_context, input_to_use, &_reshaped_weights_t, nullptr, &_gemm_output, gemm_info);
+
+        input_to_use->info()->set_quantization_info(iq_info);
+        _reshaped_weights_t.info()->set_quantization_info(wq_info);
     }
     else
     {
-        _mm_gemm.configure(input_to_use, &_reshaped_weights_t, nullptr, &_gemm_output, 1.f, 0.0f, gemm_info);
+        _mm_gemm.configure(compile_context, input_to_use, &_reshaped_weights_t, nullptr, &_gemm_output, 1.f, 0.0f, gemm_info);
     }
 
     if(_is_nchw)
@@ -272,20 +323,14 @@ void CLGEMMDeconvolutionLayer::configure(const ICLTensor *input, const ICLTensor
     }
 
     // Configure a Col2Im call to reshape the output of GEMM
-    _deconv_reshape.configure(&_gemm_output, bias, deconv_reshape_output, input->info(), weights->info(), deconv_info);
+    _deconv_reshape->configure(compile_context, &_gemm_output, bias, deconv_reshape_output, input->info(), weights->info(), deconv_info);
     _gemm_output.allocator()->allocate();
 
     if(_is_quantized)
     {
-        const UniformQuantizationInfo iq_info = input->info()->quantization_info().uniform();
-        const UniformQuantizationInfo wq_info = weights->info()->quantization_info().uniform();
-        const UniformQuantizationInfo oq_info = _gemmlowp_final.info()->quantization_info().uniform();
-
-        float multiplier = iq_info.scale * wq_info.scale / oq_info.scale;
-        int   output_multiplier(0);
-        int   output_shift(0);
-        quantization::calculate_quantized_multiplier_less_than_one(multiplier, &output_multiplier, &output_shift);
-        _gemmlowp_output_stage.configure(&_gemmlowp_final, nullptr, output_stage_output, output_multiplier, output_shift, oq_info.offset);
+        GEMMLowpOutputStageInfo output_stage_info;
+        construct_gemmlowp_output_stage(input->info(), weights->info(), output->info(), output_stage_info);
+        _gemmlowp_output_stage.configure(compile_context, &_gemmlowp_final, nullptr, output_stage_output, output_stage_info);
         _gemmlowp_final.allocator()->allocate();
     }
 
@@ -293,7 +338,7 @@ void CLGEMMDeconvolutionLayer::configure(const ICLTensor *input, const ICLTensor
     if(_padded_input)
     {
         const auto start_end = compute_start_end_slice_coordinates(*deconv_reshape_output->info(), deconv_info, _is_nchw);
-        _slice_gemm.configure(&_slice_gemm_input, slice_output, start_end.first, start_end.second);
+        _slice_gemm.configure(compile_context, &_slice_gemm_input, slice_output, start_end.first, start_end.second);
         _slice_gemm_input.allocator()->allocate();
     }
 }
@@ -318,7 +363,7 @@ void CLGEMMDeconvolutionLayer::run()
         _mm_gemm.run();
     }
 
-    CLScheduler::get().enqueue(_deconv_reshape, false);
+    CLScheduler::get().enqueue(*_deconv_reshape, false);
 
     if(_is_quantized)
     {

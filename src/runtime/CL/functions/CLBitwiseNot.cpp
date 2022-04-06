@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2017 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,16 +23,24 @@
  */
 #include "arm_compute/runtime/CL/functions/CLBitwiseNot.h"
 
-#include "arm_compute/core/CL/kernels/CLBitwiseNotKernel.h"
-#include "support/ToolchainSupport.h"
+#include "src/core/CL/kernels/CLBitwiseKernel.h"
+
+#include "src/common/utils/Log.h"
 
 #include <utility>
 
-using namespace arm_compute;
-
+namespace arm_compute
+{
 void CLBitwiseNot::configure(const ICLTensor *input, ICLTensor *output)
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLBitwiseNotKernel>();
-    k->configure(input, output);
+    configure(CLKernelLibrary::get().get_compile_context(), input, output);
+}
+
+void CLBitwiseNot::configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output)
+{
+    ARM_COMPUTE_LOG_PARAMS(input, output);
+    auto k = std::make_unique<CLBitwiseKernel>();
+    k->configure(compile_context, input, nullptr, output, BitwiseOperation::NOT);
     _kernel = std::move(k);
 }
+} // namespace arm_compute

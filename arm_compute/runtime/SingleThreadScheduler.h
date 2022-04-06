@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,17 +21,19 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_SINGLETHREADSCHEDULER_H__
-#define __ARM_COMPUTE_SINGLETHREADSCHEDULER_H__
+#ifndef ARM_COMPUTE_SINGLETHREADSCHEDULER_H
+#define ARM_COMPUTE_SINGLETHREADSCHEDULER_H
 
 #include "arm_compute/runtime/IScheduler.h"
 
 namespace arm_compute
 {
 /** Pool of threads to automatically split a kernel's execution among several threads. */
-class SingleThreadScheduler : public IScheduler
+class SingleThreadScheduler final : public IScheduler
 {
 public:
+    /** Constructor. */
+    SingleThreadScheduler() = default;
     /** Sets the number of threads the scheduler will use to run the kernels.
      *
      * @param[in] num_threads This is ignored for this scheduler as the number of threads is always one.
@@ -42,17 +44,20 @@ public:
      * @return Number of threads available in SingleThreadScheduler.
      */
     unsigned int num_threads() const override;
-    /** Access the scheduler singleton
-     *
-     * @return The scheduler
-     */
-    static SingleThreadScheduler &get();
     /** Runs the kernel in the same thread as the caller synchronously.
      *
      * @param[in] kernel Kernel to execute.
      * @param[in] hints  Hints for the scheduler.
      */
     void schedule(ICPPKernel *kernel, const Hints &hints) override;
+    /** Runs the kernel in the same thread as the caller synchronously.
+     *
+     * @param[in] kernel  Kernel to execute.
+     * @param[in] hints   Hints for the scheduler.
+     * @param[in] window  Window to use for kernel execution.
+     * @param[in] tensors Vector containing the tensors to operate on.
+     */
+    void schedule_op(ICPPKernel *kernel, const Hints &hints, const Window &window, ITensorPack &tensors) override;
 
 protected:
     /** Will run the workloads sequentially and in order.
@@ -60,10 +65,6 @@ protected:
      * @param[in] workloads Workloads to run
      */
     void run_workloads(std::vector<Workload> &workloads) override;
-
-private:
-    /** Constructor. */
-    SingleThreadScheduler() = default;
 };
-}
-#endif /* __ARM_COMPUTE_SINGLETHREADSCHEDULER_H__ */
+} // namespace arm_compute
+#endif /* ARM_COMPUTE_SINGLETHREADSCHEDULER_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,16 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_VALIDATE_H__
-#define __ARM_COMPUTE_VALIDATE_H__
+#ifndef ARM_COMPUTE_VALIDATE_H
+#define ARM_COMPUTE_VALIDATE_H
 
 #include "arm_compute/core/Error.h"
-#include "arm_compute/core/HOGInfo.h"
 #include "arm_compute/core/IKernel.h"
-#include "arm_compute/core/IMultiHOG.h"
-#include "arm_compute/core/IMultiImage.h"
 #include "arm_compute/core/ITensor.h"
-#include "arm_compute/core/MultiImageInfo.h"
 #include "arm_compute/core/Window.h"
 
 #include <algorithm>
@@ -638,6 +634,7 @@ void error_on_format_not_in(const char *function, const char *file, const int li
         return f == object_format;
     }),
     function, file, line, "Format %s not supported by this kernel", string_from_format(object_format).c_str());
+    ARM_COMPUTE_UNUSED(function, format, file, line);
 }
 #define ARM_COMPUTE_ERROR_ON_FORMAT_NOT_IN(t, ...) ::arm_compute::error_on_format_not_in(__func__, __FILE__, __LINE__, t, __VA_ARGS__)
 
@@ -662,7 +659,7 @@ inline arm_compute::Status error_on_data_type_not_in(const char *function, const
     ARM_COMPUTE_RETURN_ERROR_ON_LOC(tensor_dt == DataType::UNKNOWN, function, file, line);
 
     const std::array<T, sizeof...(Ts)> dts_array{ { std::forward<Ts>(dts)... } };
-    ARM_COMPUTE_RETURN_ERROR_ON_LOC_MSG(tensor_dt != dt && std::none_of(dts_array.begin(), dts_array.end(), [&](const T & d)
+    ARM_COMPUTE_RETURN_ERROR_ON_LOC_MSG_VAR(tensor_dt != dt && std::none_of(dts_array.begin(), dts_array.end(), [&](const T & d)
     {
         return d == tensor_dt;
     }),
@@ -714,7 +711,7 @@ inline arm_compute::Status error_on_data_layout_not_in(const char *function, con
     ARM_COMPUTE_RETURN_ERROR_ON_LOC(tensor_dl == DataLayout::UNKNOWN, function, file, line);
 
     const std::array<T, sizeof...(Ts)> dls_array{ { std::forward<Ts>(dls)... } };
-    ARM_COMPUTE_RETURN_ERROR_ON_LOC_MSG(tensor_dl != dl && std::none_of(dls_array.begin(), dls_array.end(), [&](const T & l)
+    ARM_COMPUTE_RETURN_ERROR_ON_LOC_MSG_VAR(tensor_dl != dl && std::none_of(dls_array.begin(), dls_array.end(), [&](const T & l)
     {
         return l == tensor_dl;
     }),
@@ -763,7 +760,7 @@ inline arm_compute::Status error_on_data_type_channel_not_in(const char *functio
 {
     ARM_COMPUTE_RETURN_ON_ERROR(::arm_compute::error_on_data_type_not_in(function, file, line, tensor_info, std::forward<T>(dt), std::forward<Ts>(dts)...));
     const size_t tensor_nc = tensor_info->num_channels();
-    ARM_COMPUTE_RETURN_ERROR_ON_LOC_MSG(tensor_nc != num_channels, function, file, line, "Number of channels %d. Required number of channels %d", tensor_nc, num_channels);
+    ARM_COMPUTE_RETURN_ERROR_ON_LOC_MSG_VAR(tensor_nc != num_channels, function, file, line, "Number of channels %zu. Required number of channels %zu", tensor_nc, num_channels);
     return arm_compute::Status{};
 }
 /** Return an error if the data type or the number of channels of the passed tensor does not match any of the data types and number of channels provided.
@@ -904,28 +901,6 @@ arm_compute::Status error_on_channel_not_in_known_format(const char *function, c
 #define ARM_COMPUTE_RETURN_ERROR_ON_CHANNEL_NOT_IN_KNOWN_FORMAT(f, c) \
     ARM_COMPUTE_RETURN_ON_ERROR(::arm_compute::error_on_channel_not_in_known_format(__func__, __FILE__, __LINE__, f, c))
 
-/** Return an error if the @ref IMultiHOG container is invalid
- *
- * An @ref IMultiHOG container is invalid if:
- *
- * -# it is a nullptr
- * -# it doesn't contain models
- * -# it doesn't have the HOG data objects with the same phase_type, normalization_type and l2_hyst_threshold (if normalization_type == L2HYS_NORM)
- *
- * @param[in] function  Function in which the error occurred.
- * @param[in] file      Name of the file where the error occurred.
- * @param[in] line      Line on which the error occurred.
- * @param[in] multi_hog IMultiHOG container to validate
- *
- * @return Status
- */
-arm_compute::Status error_on_invalid_multi_hog(const char *function, const char *file, const int line,
-                                               const IMultiHOG *multi_hog);
-#define ARM_COMPUTE_ERROR_ON_INVALID_MULTI_HOG(m) \
-    ARM_COMPUTE_ERROR_THROW_ON(::arm_compute::error_on_invalid_multi_hog(__func__, __FILE__, __LINE__, m))
-#define ARM_COMPUTE_RETURN_ERROR_ON_INVALID_MULTI_HOG(m) \
-    ARM_COMPUTE_RETURN_ON_ERROR(::arm_compute::error_on_invalid_multi_hog(__func__, __FILE__, __LINE__, m))
-
 /** Return an error if the kernel is not configured.
  *
  * @param[in] function Function in which the error occurred.
@@ -977,4 +952,4 @@ arm_compute::Status error_on_invalid_subtensor_valid_region(const char *function
 #define ARM_COMPUTE_RETURN_ERROR_ON_INVALID_SUBTENSOR_VALID_REGION(pv, sv) \
     ARM_COMPUTE_RETURN_ON_ERROR(::arm_compute::error_on_invalid_subtensor_valid_region(__func__, __FILE__, __LINE__, pv, sv))
 }
-#endif /* __ARM_COMPUTE_VALIDATE_H__*/
+#endif /* ARM_COMPUTE_VALIDATE_H*/

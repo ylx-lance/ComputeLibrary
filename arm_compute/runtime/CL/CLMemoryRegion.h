@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_RUNTIME_CL_CL_MEMORY_REGION_H__
-#define __ARM_COMPUTE_RUNTIME_CL_CL_MEMORY_REGION_H__
+#ifndef ARM_COMPUTE_RUNTIME_CL_CL_MEMORY_REGION_H
+#define ARM_COMPUTE_RUNTIME_CL_CL_MEMORY_REGION_H
 
 #include "arm_compute/core/CL/OpenCL.h"
 #include "arm_compute/runtime/IMemoryRegion.h"
@@ -37,10 +37,9 @@ class ICLMemoryRegion : public IMemoryRegion
 public:
     /** Constructor
      *
-     * @param[in] ctx  OpenCL context
      * @param[in] size Region size
      */
-    ICLMemoryRegion(cl::Context ctx, size_t size);
+    ICLMemoryRegion(size_t size);
     /** Default Destructor */
     virtual ~ICLMemoryRegion() = default;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -82,13 +81,14 @@ public:
 
     // Inherited methods overridden :
     void                          *buffer() override;
-    void                          *buffer() const override;
+    const void                    *buffer() const override;
     std::unique_ptr<IMemoryRegion> extract_subregion(size_t offset, size_t size) override;
 
 protected:
-    cl::Context _ctx;
-    void       *_mapping;
-    cl::Buffer  _mem;
+    cl::CommandQueue _queue;
+    cl::Context      _ctx;
+    void            *_mapping;
+    cl::Buffer       _mem;
 };
 
 /** OpenCL buffer memory region implementation */
@@ -97,11 +97,10 @@ class CLBufferMemoryRegion final : public ICLMemoryRegion
 public:
     /** Constructor
      *
-     * @param[in] ctx   OpenCL context
      * @param[in] flags Memory flags
      * @param[in] size  Region size
      */
-    CLBufferMemoryRegion(cl::Context ctx, cl_mem_flags flags, size_t size);
+    CLBufferMemoryRegion(cl_mem_flags flags, size_t size);
     /** Constructor
      *
      * @param[in] buffer Buffer to be used as a memory region
@@ -120,12 +119,11 @@ class ICLSVMMemoryRegion : public ICLMemoryRegion
 protected:
     /** Constructor
      *
-     * @param[in] ctx       OpenCL context
      * @param[in] flags     Memory flags
      * @param[in] size      Region size
      * @param[in] alignment Alignment
      */
-    ICLSVMMemoryRegion(cl::Context ctx, cl_mem_flags flags, size_t size, size_t alignment);
+    ICLSVMMemoryRegion(cl_mem_flags flags, size_t size, size_t alignment);
     /** Destructor */
     virtual ~ICLSVMMemoryRegion();
     /** Prevent instances of this class from being copied (As this class contains pointers) */
@@ -150,12 +148,11 @@ class CLCoarseSVMMemoryRegion final : public ICLSVMMemoryRegion
 public:
     /** Constructor
      *
-     * @param[in] ctx       OpenCL context
      * @param[in] flags     Memory flags
      * @param[in] size      Region size
      * @param[in] alignment Alignment
      */
-    CLCoarseSVMMemoryRegion(cl::Context ctx, cl_mem_flags flags, size_t size, size_t alignment);
+    CLCoarseSVMMemoryRegion(cl_mem_flags flags, size_t size, size_t alignment);
 
     // Inherited methods overridden :
     void *map(cl::CommandQueue &q, bool blocking) final;
@@ -168,16 +165,15 @@ class CLFineSVMMemoryRegion final : public ICLSVMMemoryRegion
 public:
     /** Constructor
      *
-     * @param[in] ctx       OpenCL context
      * @param[in] flags     Memory flags
      * @param[in] size      Region size
      * @param[in] alignment Alignment
      */
-    CLFineSVMMemoryRegion(cl::Context ctx, cl_mem_flags flags, size_t size, size_t alignment);
+    CLFineSVMMemoryRegion(cl_mem_flags flags, size_t size, size_t alignment);
 
     // Inherited methods overridden :
     void *map(cl::CommandQueue &q, bool blocking) final;
     void unmap(cl::CommandQueue &q) final;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_RUNTIME_CL_CL_MEMORY_REGION_H__ */
+#endif /* ARM_COMPUTE_RUNTIME_CL_CL_MEMORY_REGION_H */

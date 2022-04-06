@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLTUNER_TYPES_H__
-#define __ARM_COMPUTE_CLTUNER_TYPES_H__
+#ifndef ARM_COMPUTE_CLTUNER_TYPES_H
+#define ARM_COMPUTE_CLTUNER_TYPES_H
 
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/utils/misc/Utility.h"
@@ -37,6 +37,15 @@ enum class CLTunerMode
     EXHAUSTIVE, /**< Searches all possible LWS configurations while tuning */
     NORMAL,     /**< Searches a subset of LWS configurations while tuning */
     RAPID       /**< Searches a minimal subset of LWS configurations while tuning */
+};
+
+/**< OpenCL tuner tuning information */
+struct CLTuningInfo
+{
+    CLTunerMode tuner_mode = CLTunerMode::NORMAL; /**< Parameter to select the level (granularity) of the tuning */
+    bool        tune_wbsm  = false;               /**< Flag to tune the batches of work groups distributed to compute units.
+                                                       Internally, the library will check if this feature is available on
+                                                       the target platform. This OpenCL tuner extension is still in experimental phase */
 };
 
 /** Converts a string to a strong types enumeration @ref CLTunerMode
@@ -84,4 +93,4 @@ inline ::std::istream &operator>>(::std::istream &stream, CLTunerMode &tuner_mod
     return stream;
 }
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_CLTUNER_TYPES_H__ */
+#endif /*ARM_COMPUTE_CLTUNER_TYPES_H */

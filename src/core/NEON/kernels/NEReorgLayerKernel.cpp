@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,7 +21,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/NEON/kernels/NEReorgLayerKernel.h"
+#include "src/core/NEON/kernels/NEReorgLayerKernel.h"
 
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
@@ -30,6 +30,8 @@
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -40,12 +42,8 @@ namespace
 {
 Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, int32_t stride)
 {
-    //Note: ARM_COMPUTE_RETURN_ERROR_ON_CPU_F16_UNSUPPORTED(input) is not needed here as this kernel doesn't use NEON FP16 instructions.
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1,
-                                                         DataType::U8, DataType::S8, DataType::QASYMM8,
-                                                         DataType::U16, DataType::S16,
-                                                         DataType::U32, DataType::S32,
-                                                         DataType::F16, DataType::F32);
+    //Note: ARM_COMPUTE_RETURN_ERROR_ON_CPU_F16_UNSUPPORTED(input) is not needed here as this kernel doesn't use CPU FP16 instructions.
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON(input->data_layout() == DataLayout::UNKNOWN);
 
     const size_t idx_width  = get_data_layout_dimension_index(input->data_layout(), DataLayoutDimension::WIDTH);
@@ -88,7 +86,6 @@ void NEReorgLayerKernel::configure(const ITensor *input, ITensor *output, int32_
     _stride = stride;
 
     // The NEReorgLayerKernel doesn't need padding so update_window_and_padding() can be skipped
-    output->info()->set_valid_region(ValidRegion(Coordinates(), output->info()->tensor_shape()));
 
     // Configure kernel window
     Window win = calculate_max_window(*output->info(), Steps());

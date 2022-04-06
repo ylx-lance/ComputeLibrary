@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -30,7 +30,9 @@
 #include "arm_compute/graph/backends/BackendRegistry.h"
 #include "arm_compute/graph/nodes/Nodes.h"
 
-#include "arm_compute/core/utils/misc/Cast.h"
+#include "support/Cast.h"
+
+#include "support/StringSupport.h"
 
 #include <set>
 
@@ -101,6 +103,11 @@ NodeID create_grouped_convolution(Graph &g, const NodeParams &params, NodeIdxPai
 const char *GroupedConvolutionMutator::name()
 {
     return "GroupedConvolutionMutator";
+}
+
+IGraphMutator::MutationType GroupedConvolutionMutator::type() const
+{
+    return IGraphMutator::MutationType::Backend;
 }
 
 void GroupedConvolutionMutator::mutate(Graph &g)

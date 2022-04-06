@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_GRAPH_H__
-#define __ARM_COMPUTE_GRAPH_GRAPH_H__
+#ifndef ARM_COMPUTE_GRAPH_GRAPH_H
+#define ARM_COMPUTE_GRAPH_GRAPH_H
 
 #include "arm_compute/graph/Edge.h"
 #include "arm_compute/graph/INode.h"
@@ -35,9 +35,12 @@
 #include <map>
 #include <memory>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
+
+#ifndef BARE_METAL
+#include <thread>
+#endif /* BARE_METAL */
 
 namespace arm_compute
 {
@@ -61,10 +64,10 @@ public:
     Graph(const Graph &) = delete;
     /** Prevent instances of this class from being copy assigned (As this class contains pointers) */
     Graph &operator=(const Graph &) = delete;
-    /** Allow instances of this class to be moved */
-    Graph(Graph &&) = default;
-    /** Allow instances of this class to be move assigned */
-    Graph &operator=(Graph &&) = default;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    Graph(Graph &&) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    Graph &operator=(Graph &&) = delete;
     /** Adds a node to the graph
      *
      * @note Models a single output node
@@ -231,11 +234,11 @@ private:
 template <typename NT, typename... Ts>
 inline NodeID Graph::add_node(Ts &&... args)
 {
-    std::lock_guard<arm_compute::Mutex> lock(_mtx);
+    arm_compute::lock_guard<arm_compute::Mutex> lock(_mtx);
 
     // Create node
     NodeID nid  = _nodes.size();
-    auto   node = support::cpp14::make_unique<NT>(std::forward<Ts>(args)...);
+    auto   node = std::make_unique<NT>(std::forward<Ts>(args)...);
     node->set_graph(this);
     node->set_id(nid);
 
@@ -258,4 +261,4 @@ inline NodeID Graph::add_node(Ts &&... args)
 }
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_GRAPH_H__ */
+#endif /* ARM_COMPUTE_GRAPH_GRAPH_H */

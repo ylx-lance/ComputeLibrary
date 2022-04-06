@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,7 +26,9 @@
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/Validate.h"
-#include "support/ToolchainSupport.h"
+#include "src/core/helpers/AutoConfiguration.h"
+
+#include "src/common/utils/Log.h"
 
 #include <list>
 
@@ -388,9 +390,12 @@ CPPDetectionOutputLayer::CPPDetectionOutputLayer()
 {
 }
 
-void CPPDetectionOutputLayer::configure(const ITensor *input_loc, const ITensor *input_conf, const ITensor *input_priorbox, ITensor *output, DetectionOutputLayerInfo info)
+void CPPDetectionOutputLayer::configure(const ITensor *input_loc, const ITensor *input_conf, const ITensor *input_priorbox,
+                                        ITensor *output, DetectionOutputLayerInfo info)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input_loc, input_conf, input_priorbox, output);
+    ARM_COMPUTE_LOG_PARAMS(input_loc, input_conf, input_priorbox, output, info);
+
     // Output auto initialization if not yet initialized
     // Since the number of bboxes to kept is unknown before nms, the shape is set to the maximum
     // The maximum is keep_top_k * input_loc_size[1]
@@ -464,7 +469,7 @@ void CPPDetectionOutputLayer::run()
                 // Ignore background class.
                 continue;
             }
-            ARM_COMPUTE_ERROR_ON_MSG(_all_location_predictions[i].find(label) == _all_location_predictions[i].end(), "Could not find location predictions for label %d.", label);
+            ARM_COMPUTE_ERROR_ON_MSG_VAR(_all_location_predictions[i].find(label) == _all_location_predictions[i].end(), "Could not find location predictions for label %d.", label);
 
             const std::vector<BBox> &label_loc_preds = _all_location_predictions[i].find(label)->second;
 
@@ -497,7 +502,7 @@ void CPPDetectionOutputLayer::run()
             const int label = _info.share_location() ? -1 : c;
             if(conf_scores.find(c) == conf_scores.end() || decode_bboxes.find(label) == decode_bboxes.end())
             {
-                ARM_COMPUTE_ERROR("Could not find predictions for label %d.", label);
+                ARM_COMPUTE_ERROR_VAR("Could not find predictions for label %d.", label);
             }
             const std::vector<float> &scores = conf_scores.find(c)->second;
             const std::vector<BBox> &bboxes = decode_bboxes.find(label)->second;
@@ -518,7 +523,7 @@ void CPPDetectionOutputLayer::run()
 
                 if(conf_scores.find(label) == conf_scores.end())
                 {
-                    ARM_COMPUTE_ERROR("Could not find predictions for label %d.", label);
+                    ARM_COMPUTE_ERROR_VAR("Could not find predictions for label %d.", label);
                 }
 
                 const std::vector<float> &scores = conf_scores.find(label)->second;
@@ -570,7 +575,7 @@ void CPPDetectionOutputLayer::run()
             {
                 // Either if there are no confidence predictions
                 // or there are no location predictions for current label.
-                ARM_COMPUTE_ERROR("Could not find predictions for the label %d.", label);
+                ARM_COMPUTE_ERROR_VAR("Could not find predictions for the label %d.", label);
             }
             const std::vector<BBox> &bboxes  = decode_bboxes.find(loc_label)->second;
             const std::vector<int> &indices = it.second;

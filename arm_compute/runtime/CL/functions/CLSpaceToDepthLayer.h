@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,17 +21,20 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLSPACETODEPTHLAYER_H__
-#define __ARM_COMPUTE_CLSPACETODEPTHLAYER_H__
+#ifndef ARM_COMPUTE_CLSPACETODEPTHLAYER_H
+#define ARM_COMPUTE_CLSPACETODEPTHLAYER_H
 
+#include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/IFunction.h"
 
-#include "arm_compute/core/CL/kernels/CLSpaceToDepthLayerKernel.h"
-#include "arm_compute/core/Types.h"
+#include <memory>
 
 namespace arm_compute
 {
+class CLCompileContext;
+class CLSpaceToDepthLayerKernel;
 class ICLTensor;
+class ITensorInfo;
 
 /** Basic function to run @ref CLSpaceToDepthLayerKernel. */
 class CLSpaceToDepthLayer : public IFunction
@@ -39,16 +42,43 @@ class CLSpaceToDepthLayer : public IFunction
 public:
     /** Default constructor */
     CLSpaceToDepthLayer();
+    /** Prevent instances of this class from being copied */
+    CLSpaceToDepthLayer(const CLSpaceToDepthLayer &) = delete;
+    /** Prevent instances of this class from being copied */
+    CLSpaceToDepthLayer &operator=(const CLSpaceToDepthLayer &) = delete;
+    /** Prevent instances of this class to be moved */
+    CLSpaceToDepthLayer(CLSpaceToDepthLayer &&) = delete;
+    /** Prevent instances of this class to be moved */
+    CLSpaceToDepthLayer &operator=(CLSpaceToDepthLayer &&) = delete;
+    /** Default destructor */
+    ~CLSpaceToDepthLayer();
     /** Set the input and output tensors.
      *
-     * @param[in]  input       Tensor input. Supported tensor rank: 4. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32.
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |All            |All            |
+     *
+     * @param[in]  input       Tensor input. Supported tensor rank: 4. Data types supported: All.
      * @param[out] output      Tensor output. Data types supported: same as @p input
      * @param[in]  block_shape Block shape value.
      */
     void configure(const ICLTensor *input, ICLTensor *output, int32_t block_shape);
+    /** Set the input and output tensors.
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  input           Tensor input. Supported tensor rank: 4. Data types supported: All.
+     * @param[out] output          Tensor output. Data types supported: same as @p input
+     * @param[in]  block_shape     Block shape value.
+     */
+    void configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output, int32_t block_shape);
     /** Static function to check if given info will lead to a valid configuration of @ref CLSpaceToDepthLayer.
      *
-     * @param[in] input       Tensor input info. Supported tensor rank: 4. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32.
+     * @param[in] input       Tensor input info. Supported tensor rank: 4. Data types supported: All.
      * @param[in] output      Tensor output info. Data types supported: same as @p input
      * @param[in] block_shape Block shape value.
      *
@@ -60,7 +90,7 @@ public:
     void run() override;
 
 private:
-    CLSpaceToDepthLayerKernel _space_to_depth_kernel; /**< CLSpaceToDepthLayerKernel to run */
+    std::unique_ptr<CLSpaceToDepthLayerKernel> _space_to_depth_kernel; /**< CLSpaceToDepthLayerKernel to run */
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLSPACETODEPTHLAYER_H__ */
+#endif /* ARM_COMPUTE_CLSPACETODEPTHLAYER_H */

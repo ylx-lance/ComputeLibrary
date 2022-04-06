@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_VALIDATION_HELPERS_H__
-#define __ARM_COMPUTE_TEST_VALIDATION_HELPERS_H__
+#ifndef ARM_COMPUTE_TEST_VALIDATION_HELPERS_H
+#define ARM_COMPUTE_TEST_VALIDATION_HELPERS_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Utils.h"
@@ -30,6 +30,7 @@
 #include "tests/Globals.h"
 #include "tests/SimpleTensor.h"
 
+#include <math.h>
 #include <random>
 #include <type_traits>
 #include <utility>
@@ -90,7 +91,6 @@ std::pair<T, T> get_activation_layer_test_bounds(ActivationLayerInfo::Activation
         case DataType::F32:
             switch(activation)
             {
-                case ActivationLayerInfo::ActivationFunction::LOGISTIC:
                 case ActivationLayerInfo::ActivationFunction::SOFT_RELU:
                     // Reduce range as exponent overflows
                     bounds = std::make_pair(-40.f, 40.f);
@@ -111,15 +111,6 @@ std::pair<T, T> get_activation_layer_test_bounds(ActivationLayerInfo::Activation
     return bounds;
 }
 
-/** Fill mask with the corresponding given pattern.
- *
- * @param[in,out] mask    Mask to be filled according to pattern
- * @param[in]     cols    Columns (width) of mask
- * @param[in]     rows    Rows (height) of mask
- * @param[in]     pattern Pattern to fill the mask according to
- */
-void fill_mask_from_pattern(uint8_t *mask, int cols, int rows, MatrixPattern pattern);
-
 /** Calculate output tensor shape give a vector of input tensor to concatenate
  *
  * @param[in] input_shapes Shapes of the tensors to concatenate across depth.
@@ -137,53 +128,14 @@ TensorShape calculate_depth_concatenate_shape(const std::vector<TensorShape> &in
  */
 TensorShape calculate_concatenate_shape(const std::vector<TensorShape> &input_shapes, size_t axis);
 
-/** Parameters of Harris Corners algorithm. */
-struct HarrisCornersParameters
-{
-    float   threshold{ 0.f };           /**< Threshold */
-    float   sensitivity{ 0.f };         /**< Sensitivity */
-    float   min_dist{ 0.f };            /**< Minimum distance */
-    uint8_t constant_border_value{ 0 }; /**< Border value */
-};
-
-/** Generate parameters for Harris Corners algorithm. */
-HarrisCornersParameters harris_corners_parameters();
-
-/** Parameters of Canny edge algorithm. */
-struct CannyEdgeParameters
-{
-    int32_t upper_thresh{ 255 };
-    int32_t lower_thresh{ 0 };
-    uint8_t constant_border_value{ 0 };
-};
-
-/** Generate parameters for Canny edge algorithm. */
-CannyEdgeParameters canny_edge_parameters();
-
-/** Helper function to fill the Lut random by a ILutAccessor.
- *
- * @param[in,out] table Accessor at the Lut.
- *
- */
-template <typename T>
-void fill_lookuptable(T &&table)
-{
-    std::mt19937                                          generator(library->seed());
-    std::uniform_int_distribution<typename T::value_type> distribution(std::numeric_limits<typename T::value_type>::min(), std::numeric_limits<typename T::value_type>::max());
-
-    for(int i = std::numeric_limits<typename T::value_type>::min(); i <= std::numeric_limits<typename T::value_type>::max(); i++)
-    {
-        table[i] = distribution(generator);
-    }
-}
-
-/** Convert quantized simple tensor into float using tensor quantization information.
+/** Convert an asymmetric quantized simple tensor into float using tensor quantization information.
  *
  * @param[in] src Quantized tensor.
  *
  * @return Float tensor.
  */
-SimpleTensor<float> convert_from_asymmetric(const SimpleTensor<uint8_t> &src);
+template <typename T>
+SimpleTensor<float> convert_from_asymmetric(const SimpleTensor<T> &src);
 
 /** Convert float simple tensor into quantized using specified quantization information.
  *
@@ -192,7 +144,8 @@ SimpleTensor<float> convert_from_asymmetric(const SimpleTensor<uint8_t> &src);
  *
  * @return Quantized tensor.
  */
-SimpleTensor<uint8_t> convert_to_asymmetric(const SimpleTensor<float> &src, const QuantizationInfo &quantization_info);
+template <typename T>
+SimpleTensor<T> convert_to_asymmetric(const SimpleTensor<float> &src, const QuantizationInfo &quantization_info);
 
 /** Convert quantized simple tensor into float using tensor quantization information.
  *
@@ -259,7 +212,45 @@ void zeros(SimpleTensor<T> &in, const Coordinates &anchor, const TensorShape &sh
  * @param[in] max        Floating point maximum value to be quantized
  */
 std::pair<int, int> get_quantized_bounds(const QuantizationInfo &quant_info, float min, float max);
+
+/** Helper function to compute asymmetric quantized signed min and max bounds
+ *
+ * @param[in] quant_info Quantization info to be used for conversion
+ * @param[in] min        Floating point minimum value to be quantized
+ * @param[in] max        Floating point maximum value to be quantized
+ */
+std::pair<int, int> get_quantized_qasymm8_signed_bounds(const QuantizationInfo &quant_info, float min, float max);
+
+/** Helper function to compute symmetric quantized min and max bounds
+ *
+ * @param[in] quant_info Quantization info to be used for conversion
+ * @param[in] min        Floating point minimum value to be quantized
+ * @param[in] max        Floating point maximum value to be quantized
+ * @param[in] channel_id Channel id for per channel quantization info.
+ */
+std::pair<int, int> get_symm_quantized_per_channel_bounds(const QuantizationInfo &quant_info, float min, float max, size_t channel_id = 0);
+
+/** Add random padding along the X axis (between 1 and 16 columns per side) to all the input tensors.
+ *  This is used in our validation suite in order to simulate implicit padding addition after configuring, but before allocating.
+ *
+ * @param[in] tensors        List of tensors to add padding to
+ * @param[in] data_layout    (Optional) Data layout of the operator
+ * @param[in] only_right_pad (Optional) Only right padding testing, in case of cl image padding
+ *
+ * @note This function adds padding to the input tensors only if data_layout == DataLayout::NHWC
+ */
+void add_padding_x(std::initializer_list<ITensor *> tensors, const DataLayout &data_layout = DataLayout::NHWC, bool only_right_pad = false);
+
+/** Add random padding along the Y axis (between 1 and 4 rows per side) to all the input tensors.
+ *  This is used in our validation suite in order to simulate implicit padding addition after configuring, but before allocating.
+ *
+ * @param[in] tensors     List of tensors to add padding to
+ * @param[in] data_layout (Optional) Data layout of the operator
+ *
+ * @note This function adds padding to the input tensors only if data_layout == DataLayout::NHWC
+ */
+void add_padding_y(std::initializer_list<ITensor *> tensors, const DataLayout &data_layout = DataLayout::NHWC);
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_VALIDATION_HELPERS_H__ */
+#endif /* ARM_COMPUTE_TEST_VALIDATION_HELPERS_H */

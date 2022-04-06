@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,18 +21,19 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/CL/kernels/CLFuseBatchNormalizationKernel.h"
+#include "src/core/CL/kernels/CLFuseBatchNormalizationKernel.h"
 
 #include "arm_compute/core/CL/CLHelpers.h"
 #include "arm_compute/core/CL/CLKernelLibrary.h"
-#include "arm_compute/core/CL/CLValidate.h"
 #include "arm_compute/core/CL/ICLTensor.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Utils.h"
-#include "arm_compute/core/Window.h"
+#include "src/core/CL/CLValidate.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
 
-#include "support/ToolchainSupport.h"
+#include "support/StringSupport.h"
 
 namespace arm_compute
 {
@@ -102,6 +103,7 @@ CLFuseBatchNormalizationKernel::CLFuseBatchNormalizationKernel()
     : _input_weights(nullptr), _input_bias(nullptr), _bn_mean(nullptr), _bn_var(nullptr), _bn_gamma(nullptr), _bn_beta(nullptr), _fused_weights(nullptr), _fused_bias(nullptr), _epsilon(),
       _run_in_place_weights(false), _run_in_place_bias(false)
 {
+    _type = CLKernelType::ELEMENTWISE;
 }
 
 void CLFuseBatchNormalizationKernel::configure(const ICLTensor *input_weights, const ICLTensor *bn_mean, const ICLTensor *bn_var,
@@ -109,7 +111,17 @@ void CLFuseBatchNormalizationKernel::configure(const ICLTensor *input_weights, c
                                                const ICLTensor *input_bias, const ICLTensor *bn_beta, const ICLTensor *bn_gamma,
                                                float epsilon, FuseBatchNormalizationType fbn_type)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input_weights, bn_mean, bn_var, fused_weights, fused_bias, input_bias, bn_beta, bn_gamma, epsilon, fbn_type);
+}
+
+void CLFuseBatchNormalizationKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input_weights, const ICLTensor *bn_mean, const ICLTensor *bn_var,
+                                               ICLTensor *fused_weights, ICLTensor *fused_bias,
+                                               const ICLTensor *input_bias, const ICLTensor *bn_beta, const ICLTensor *bn_gamma,
+                                               float epsilon, FuseBatchNormalizationType fbn_type)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input_weights, bn_mean, bn_var);
+
+    auto padding_info = get_padding_info({ input_weights, bn_mean, bn_var, fused_weights, fused_bias, input_bias, bn_beta, bn_gamma });
 
     _input_weights = input_weights;
     _input_bias    = input_bias;
@@ -162,7 +174,9 @@ void CLFuseBatchNormalizationKernel::configure(const ICLTensor *input_weights, c
     build_opts.add_option_if(bn_gamma != nullptr, "-DGAMMA");
 
     // Create kernel
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel("fuse_batchnormalization_layer", build_opts.options()));
+    _kernel = create_kernel(compile_context, "fuse_batchnormalization_layer", build_opts.options());
+
+    ARM_COMPUTE_ERROR_ON(has_padding_changed(padding_info));
 }
 
 Status CLFuseBatchNormalizationKernel::validate(const ITensorInfo *input_weights, const ITensorInfo *bn_mean, const ITensorInfo *bn_var,
@@ -209,6 +223,6 @@ void CLFuseBatchNormalizationKernel::run(const arm_compute::Window &window, cl::
     {
         add_1D_tensor_argument(idx, _bn_gamma, slice_1d);
     }
-    enqueue(queue, *this, slice_3d);
+    enqueue(queue, *this, slice_3d, lws_hint());
 }
 } // namespace arm_compute

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -46,10 +46,6 @@ Target get_default_target()
     {
         return Target::CL;
     }
-    if(is_target_supported(Target::GC))
-    {
-        return Target::GC;
-    }
     ARM_COMPUTE_ERROR("No backend exists!");
 }
 
@@ -74,21 +70,37 @@ void force_target_to_graph(Graph &g, Target target)
     }
 }
 
-PassManager create_default_pass_manager(Target target)
+PassManager create_default_pass_manager(Target target, const GraphConfig &cfg)
 {
+    ARM_COMPUTE_UNUSED(target);
     PassManager pm;
 
-    const bool is_target_gc = target == Target::GC;
-
     // Passes that mutate graph IR
-    pm.append(support::cpp14::make_unique<NodeFusionMutator>(), !is_target_gc);
-    pm.append(support::cpp14::make_unique<GroupedConvolutionMutator>());
-    pm.append(support::cpp14::make_unique<InPlaceOperationMutator>(), !is_target_gc);
+    if(cfg.use_synthetic_type)
+    {
+        switch(cfg.synthetic_type)
+        {
+            case DataType::QASYMM8:
+            case DataType::QASYMM8_SIGNED:
+            {
+                pm.append(std::make_unique<SyntheticDataTypeMutator>(cfg.synthetic_type));
+                break;
+            }
+            default:
+            {
+                ARM_COMPUTE_ERROR("Unsupported DataType for SyntheticDataTypeMutator");
+                break;
+            }
+        }
+    }
+    pm.append(std::make_unique<NodeFusionMutator>());
+    pm.append(std::make_unique<GroupedConvolutionMutator>());
+    pm.append(std::make_unique<InPlaceOperationMutator>());
 
     // Passes that mutate backend information
-    pm.append(support::cpp14::make_unique<DepthConcatSubTensorMutator>(), !is_target_gc);
-    pm.append(support::cpp14::make_unique<SplitLayerSubTensorMutator>(), !is_target_gc);
-    pm.append(support::cpp14::make_unique<NodeExecutionMethodMutator>());
+    pm.append(std::make_unique<DepthConcatSubTensorMutator>());
+    pm.append(std::make_unique<SplitLayerSubTensorMutator>());
+    pm.append(std::make_unique<NodeExecutionMethodMutator>());
 
     return pm;
 }
@@ -100,6 +112,17 @@ void release_default_graph_context(GraphContext &ctx)
         if(backend.second->is_backend_supported())
         {
             backend.second->release_backend_context(ctx);
+        }
+    }
+}
+
+void sync_backends()
+{
+    for(const auto &backend : backends::BackendRegistry::get().backends())
+    {
+        if(backend.second->backend_allocator())
+        {
+            backend.second->sync();
         }
     }
 }
@@ -146,9 +169,9 @@ size_t get_dimension_idx(DataLayout data_layout, const DataLayoutDimension data_
             return 3;
             break;
         default:
-            ARM_COMPUTE_ERROR("Data layout index not supported!");
             break;
     }
+    ARM_COMPUTE_ERROR("Data layout index not supported!");
 }
 
 std::vector<NodeIdxPair> get_driving_nodes(const INode &node)
@@ -171,6 +194,26 @@ std::vector<NodeIdxPair> get_driving_nodes(const INode &node)
     return driving_nodes;
 }
 
+std::vector<NodeIdxPair> get_driver_nodes(const INode &node)
+{
+    std::vector<NodeIdxPair> driver_nodes;
+
+    const Graph *g = node.graph();
+    ARM_COMPUTE_ERROR_ON(g == nullptr);
+
+    for(auto &input_edge_id : node.input_edges())
+    {
+        auto input_edge = g->edge(input_edge_id);
+        if(input_edge != nullptr)
+        {
+            ARM_COMPUTE_ERROR_ON(input_edge->producer() == nullptr);
+            driver_nodes.push_back({ input_edge->producer_id(), input_edge->producer_idx() });
+        }
+    }
+
+    return driver_nodes;
+}
+
 void configure_tensor(Tensor *tensor)
 {
     if(tensor != nullptr && tensor->handle() == nullptr)
@@ -182,5 +225,6 @@ void configure_tensor(Tensor *tensor)
         tensor->set_handle(std::move(handle));
     }
 }
+
 } // namespace graph
 } // namespace arm_compute

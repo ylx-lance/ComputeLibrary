@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,39 +21,66 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NETRANSPOSE_H__
-#define __ARM_COMPUTE_NETRANSPOSE_H__
+#ifndef ARM_COMPUTE_NETRANSPOSE_H
+#define ARM_COMPUTE_NETRANSPOSE_H
+
+#include "arm_compute/runtime/IFunction.h"
 
 #include "arm_compute/core/Types.h"
-#include "arm_compute/runtime/NEON/INESimpleFunctionNoBorder.h"
+
+#include <memory>
 
 namespace arm_compute
 {
+// Forward declarations
 class ITensor;
+class ITensorInfo;
 
-/** Basic function to transpose a matrix on NEON. This function calls the following NEON kernel:
- *
- *  -# @ref NETransposeKernel
- *
- */
-class NETranspose : public INESimpleFunctionNoBorder
+/** Basic function to run @ref cpu::kernels::CpuTransposeKernel */
+class NETranspose : public IFunction
 {
 public:
+    /** Default Constructor */
+    NETranspose();
+    /** Default Destructor */
+    ~NETranspose();
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NETranspose(const NETranspose &) = delete;
+    /** Default move constructor */
+    NETranspose(NETranspose &&) = default;
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NETranspose &operator=(const NETranspose &) = delete;
+    /** Default move assignment operator */
+    NETranspose &operator=(NETranspose &&) = default;
     /** Initialise the kernel's inputs and output
      *
-     * @param[in]  input  Input tensor. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src    |dst    |
+     * |:------|:------|
+     * |All    |All    |
+     *
+     * @param[in]  input  Input tensor. Data types supported: All
      * @param[out] output Output tensor. Data type supported: Same as @p input
      */
     void configure(const ITensor *input, ITensor *output);
     /** Static function to check if given info will lead to a valid configuration of @ref NETranspose
      *
-     * @param[in] input  The input tensor. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32
+     * @param[in] input  The input tensor. Data types supported: All
      * @param[in] output The output tensor. Data types supported: Same as @p input
      *
      * @return a status
      */
     static Status validate(const ITensorInfo *input, const ITensorInfo *output);
+
+    // Inherited methods overridden
+    void run() override;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-
-#endif /* __ARM_COMPUTE_NETRANSPOSE_H__ */
+#endif /* ARM_COMPUTE_NETRANSPOSE_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,6 +25,7 @@
 #include "arm_compute/runtime/CL/CLTensor.h"
 #include "arm_compute/runtime/CL/CLTensorAllocator.h"
 #include "arm_compute/runtime/CL/functions/CLActivationLayer.h"
+#include "arm_compute/runtime/RuntimeContext.h"
 #include "tests/CL/CLAccessor.h"
 #include "tests/PaddingCalculator.h"
 #include "tests/datasets/ActivationFunctionsDataset.h"
@@ -67,10 +68,13 @@ AbsoluteTolerance<float> tolerance(ActivationLayerInfo::ActivationFunction activ
         case ActivationLayerInfo::ActivationFunction::LEAKY_RELU:
             return AbsoluteTolerance<float>(data_type == DataType::F16 ? 0.00001f : epsilon);
         case ActivationLayerInfo::ActivationFunction::SOFT_RELU:
+        case ActivationLayerInfo::ActivationFunction::ELU:
         case ActivationLayerInfo::ActivationFunction::SQRT:
             return AbsoluteTolerance<float>(data_type == DataType::F16 ? 0.01f : 0.00001f);
         case ActivationLayerInfo::ActivationFunction::TANH:
             return AbsoluteTolerance<float>(data_type == DataType::F16 ? 0.001f : 0.00001f);
+        case ActivationLayerInfo::ActivationFunction::HARD_SWISH:
+            return AbsoluteTolerance<float>(data_type == DataType::F16 ? 0.01f : epsilon);
         default:
             return AbsoluteTolerance<float>(epsilon);
     }
@@ -85,58 +89,16 @@ const auto CNNDataTypes = framework::dataset::make("DataType",
 
 /** Input data sets. */
 const auto ActivationDataset = combine(combine(framework::dataset::make("InPlace", { false, true }), datasets::ActivationFunctions()), framework::dataset::make("AlphaBeta", { 0.5f, 1.f }));
+
 } // namespace
 
 TEST_SUITE(CL)
 TEST_SUITE(ActivationLayer)
-
-DATA_TEST_CASE(Configuration, framework::DatasetMode::ALL, combine(combine(datasets::SmallShapes(), CNNDataTypes), framework::dataset::make("InPlace", { false, true })),
-               shape, data_type, in_place)
-{
-    // Create tensors
-    CLTensor src = create_tensor<CLTensor>(shape, data_type, 1);
-    CLTensor dst = create_tensor<CLTensor>(shape, data_type, 1);
-
-    ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
-
-    // Create and configure function
-    CLActivationLayer act_layer;
-
-    if(in_place)
-    {
-        act_layer.configure(&src, nullptr, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::ABS));
-    }
-    else
-    {
-        act_layer.configure(&src, &dst, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::ABS));
-    }
-
-    // Validate valid region
-    const ValidRegion valid_region = shape_to_valid_region(shape);
-    validate(src.info()->valid_region(), valid_region);
-
-    if(!in_place)
-    {
-        validate(dst.info()->valid_region(), valid_region);
-    }
-
-    // Validate padding
-    const int         step    = 16 / arm_compute::data_size_from_type(data_type);
-    const PaddingSize padding = PaddingCalculator(shape.x(), step).required_padding();
-    validate(src.info()->padding(), padding);
-
-    if(!in_place)
-    {
-        validate(dst.info()->padding(), padding);
-    }
-}
-
 // *INDENT-OFF*
 // clang-format off
 DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
                framework::dataset::make("InputInfo", { TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32),     // Mismatching data types
-                                                       TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32),     // Window shrink
+                                                       TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::F32),
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::F32),
                                                        TensorInfo(TensorShape(32U, 13U, 2U), 1, DataType::QASYMM8),
                                                        TensorInfo(TensorShape(27U, 13U, 2U), 1, DataType::QASYMM8), // Invalid quantization info
@@ -165,11 +127,12 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
                                                             ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LOGISTIC),
                                                             ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::SQRT),
                                                           })),
-               framework::dataset::make("Expected", { false, false, true, true, false, false, true, true, false })),
+               framework::dataset::make("Expected", { false, true, true, true, false, false, true, true, false })),
                input_info, output_info, act_info, expected)
 {
     ARM_COMPUTE_EXPECT(bool(CLActivationLayer::validate(&input_info.clone()->set_is_resizable(false), (output_info.total_size() == 0) ? nullptr : &output_info.clone()->set_is_resizable(false), act_info)) == expected, framework::LogLevel::ERRORS);
 }
+
 // clang-format on
 // *INDENT-ON*
 
@@ -181,32 +144,19 @@ using CLActivationLayerFixture = ActivationValidationFixture<CLTensor, CLAccesso
 TEST_SUITE(Float)
 TEST_SUITE(FP16)
 /** [CLActivationLayer Test snippet] **/
-FIXTURE_DATA_TEST_CASE(RunSmall, CLActivationLayerFixture<half>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::SmallShapes(), ActivationDataset),
-                                                                                                            framework::dataset::make("DataType",
-                                                                                                                    DataType::F16)))
+FIXTURE_DATA_TEST_CASE(RunSmall, CLActivationLayerFixture<half>, framework::DatasetMode::ALL, combine(combine(datasets::SmallShapes(), ActivationDataset),
+                                                                                                      framework::dataset::make("DataType",
+                                                                                                              DataType::F16)))
 {
     // Validate output
     validate(CLAccessor(_target), _reference, tolerance(_function, _data_type));
 }
 /** [CLActivationLayer Test snippet] **/
-FIXTURE_DATA_TEST_CASE(RunLarge, CLActivationLayerFixture<half>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::LargeShapes(), ActivationDataset),
-                                                                                                          framework::dataset::make("DataType",
-                                                                                                                  DataType::F16)))
-{
-    // Validate output
-    validate(CLAccessor(_target), _reference, tolerance(_function, _data_type));
-}
 TEST_SUITE_END() // FP16
 
 TEST_SUITE(FP32)
-FIXTURE_DATA_TEST_CASE(RunSmall, CLActivationLayerFixture<float>, framework::DatasetMode::PRECOMMIT, combine(combine(datasets::SmallShapes(), ActivationDataset), framework::dataset::make("DataType",
-                                                                                                             DataType::F32)))
-{
-    // Validate output
-    validate(CLAccessor(_target), _reference, tolerance(_function, _data_type));
-}
-FIXTURE_DATA_TEST_CASE(RunLarge, CLActivationLayerFixture<float>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::LargeShapes(), ActivationDataset), framework::dataset::make("DataType",
-                                                                                                           DataType::F32)))
+FIXTURE_DATA_TEST_CASE(RunSmall, CLActivationLayerFixture<float>, framework::DatasetMode::ALL, combine(combine(datasets::SmallShapes(), ActivationDataset), framework::dataset::make("DataType",
+                                                                                                       DataType::F32)))
 {
     // Validate output
     validate(CLAccessor(_target), _reference, tolerance(_function, _data_type));
@@ -217,41 +167,42 @@ TEST_SUITE_END() // Float
 template <typename T>
 using CLActivationLayerQuantizedFixture = ActivationValidationQuantizedFixture<CLTensor, CLAccessor, CLActivationLayer, T>;
 
-const auto QuantizedActivationDataset = combine(combine(framework::dataset::make("InPlace", { false }), datasets::ActivationFunctionsQuantized()),
-                                                framework::dataset::make("AlphaBeta", { 0.5f, 1.f }));
+const auto QuantizedActivationDataset8 = combine(combine(framework::dataset::make("InPlace", { false }),
+                                                         concat(datasets::ActivationFunctionsQuantized(),
+                                                                framework::dataset::make("ActivationFunction",
+{ ActivationLayerInfo::ActivationFunction::HARD_SWISH, ActivationLayerInfo::ActivationFunction::LEAKY_RELU }))),
+framework::dataset::make("AlphaBeta", { 0.5f, 1.f }));
+
+const auto QuantizedActivationDataset16 = combine(combine(framework::dataset::make("InPlace", { false }),
+                                                          datasets::ActivationFunctionsQuantized()),
+                                                  framework::dataset::make("AlphaBeta", { 0.5f, 1.f }));
 
 TEST_SUITE(Quantized)
 TEST_SUITE(QASYMM8)
-FIXTURE_DATA_TEST_CASE(RunSmall, CLActivationLayerQuantizedFixture<uint8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::SmallShapes(), QuantizedActivationDataset),
-                                                                                                                        framework::dataset::make("DataType",
-                                                                                                                                DataType::QASYMM8)),
-                                                                                                                        framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.1f, 128.0f) })))
-{
-    // Validate output
-    validate(CLAccessor(_target), _reference, tolerance(_function, _data_type));
-}
-FIXTURE_DATA_TEST_CASE(RunLarge, CLActivationLayerQuantizedFixture<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(datasets::LargeShapes(), QuantizedActivationDataset),
-                                                                                                                      framework::dataset::make("DataType",
-                                                                                                                              DataType::QASYMM8)),
-                                                                                                                      framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.1f, 128.0f) })))
+FIXTURE_DATA_TEST_CASE(RunSmall, CLActivationLayerQuantizedFixture<uint8_t>, framework::DatasetMode::ALL, combine(combine(combine(datasets::SmallShapes(), QuantizedActivationDataset8),
+                                                                                                                  framework::dataset::make("DataType",
+                                                                                                                          DataType::QASYMM8)),
+                                                                                                                  framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.1f, 128.0f) })))
 {
     // Validate output
     validate(CLAccessor(_target), _reference, tolerance(_function, _data_type));
 }
 TEST_SUITE_END() // QASYMM8
-TEST_SUITE(QSYMM16)
-FIXTURE_DATA_TEST_CASE(RunSmall, CLActivationLayerQuantizedFixture<int16_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(datasets::SmallShapes(), QuantizedActivationDataset),
-                                                                                                                        framework::dataset::make("DataType",
-                                                                                                                                DataType::QSYMM16)),
-                                                                                                                        framework::dataset::make("QuantizationInfo", { QuantizationInfo(1.f / 32768.f, 0) })))
+TEST_SUITE(QASYMM8_SIGNED)
+FIXTURE_DATA_TEST_CASE(RunSmall, CLActivationLayerQuantizedFixture<int8_t>, framework::DatasetMode::ALL, combine(combine(combine(datasets::SmallShapes(), QuantizedActivationDataset8),
+                                                                                                                 framework::dataset::make("DataType",
+                                                                                                                         DataType::QASYMM8_SIGNED)),
+                                                                                                                 framework::dataset::make("QuantizationInfo", { QuantizationInfo(0.1f, 10.0f) })))
 {
     // Validate output
-    validate(CLAccessor(_target), _reference, tolerance_qsymm16);
+    validate(CLAccessor(_target), _reference, tolerance(_function, _data_type));
 }
-FIXTURE_DATA_TEST_CASE(RunLarge, CLActivationLayerQuantizedFixture<int16_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(datasets::LargeShapes(), QuantizedActivationDataset),
-                                                                                                                      framework::dataset::make("DataType",
-                                                                                                                              DataType::QSYMM16)),
-                                                                                                                      framework::dataset::make("QuantizationInfo", { QuantizationInfo(1.f / 32768.f, 0) })))
+TEST_SUITE_END() // QASYMM8_SIGNED
+TEST_SUITE(QSYMM16)
+FIXTURE_DATA_TEST_CASE(RunSmall, CLActivationLayerQuantizedFixture<int16_t>, framework::DatasetMode::ALL, combine(combine(combine(datasets::SmallShapes(), QuantizedActivationDataset16),
+                                                                                                                  framework::dataset::make("DataType",
+                                                                                                                          DataType::QSYMM16)),
+                                                                                                                  framework::dataset::make("QuantizationInfo", { QuantizationInfo(1.f / 32768.f, 0) })))
 {
     // Validate output
     validate(CLAccessor(_target), _reference, tolerance_qsymm16);

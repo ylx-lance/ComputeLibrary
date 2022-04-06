@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2017 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,16 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLBITWISEXOR_H__
-#define __ARM_COMPUTE_CLBITWISEXOR_H__
+#ifndef ARM_COMPUTE_CLBITWISEXOR_H
+#define ARM_COMPUTE_CLBITWISEXOR_H
 
 #include "arm_compute/runtime/CL/ICLSimpleFunction.h"
 
 namespace arm_compute
 {
+class CLCompileContext;
 class ICLTensor;
 
-/** Basic function to run @ref CLBitwiseXorKernel.
+/** Basic function to perform bitwise XOR by running @ref CLBitwiseKernel.
  *
  * @note The tensor data type for the inputs must be U8.
  * @note The function performs a bitwise XOR operation using the two input tensors.
@@ -40,11 +41,27 @@ class CLBitwiseXor : public ICLSimpleFunction
 public:
     /** Initialize the function
      *
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |U8             |U8             |
+     *
      * @param[in]  input1 Input tensor. Data types supported: U8.
      * @param[in]  input2 Input tensor. Data types supported: U8.
      * @param[out] output Output tensor. Data types supported: U8.
      */
     void configure(const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output);
+    /** Initialize the function
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  input1          Input tensor. Data types supported: U8.
+     * @param[in]  input2          Input tensor. Data types supported: U8.
+     * @param[out] output          Output tensor. Data types supported: U8.
+     */
+    void configure(const CLCompileContext &compile_context, const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output);
 };
 }
-#endif /* __ARM_COMPUTE_CLBITWISEXOR_H__ */
+#endif /* ARM_COMPUTE_CLBITWISEXOR_H */

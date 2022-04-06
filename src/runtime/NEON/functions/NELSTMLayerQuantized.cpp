@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,6 +26,8 @@
 #include "arm_compute/core/Utils.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/quantization/AsymmHelpers.h"
+#include "src/common/utils/Log.h"
+#include "src/core/helpers/AutoConfiguration.h"
 
 #include <cmath>
 #include <memory>
@@ -41,6 +43,7 @@ const QuantizationInfo qsymm_3(8.f / 32768.f, 0);  // qsymm16 with 3 integer bit
 const QuantizationInfo qsymm_4(16.f / 32768.f, 0); // qsymm16 with 4 integer bit
 const QuantizationInfo qsymm_0(1.f / 32768.f, 0);  // qsymm16 with 0 integer bit
 } // namespace
+NELSTMLayerQuantized::~NELSTMLayerQuantized() = default;
 
 NELSTMLayerQuantized::NELSTMLayerQuantized(std::shared_ptr<IMemoryManager> memory_manager)
     : _memory_group(std::move(memory_manager)), _gemmlowp(), _output_stage(), _transpose_weights(), _concat_input_weights(), _concat_recurrent_weights(), _concat_weights(), _concat_inputs(),
@@ -69,6 +72,10 @@ void NELSTMLayerQuantized::configure(const ITensor *input,
                                                               input_to_output_weights->info(),
                                                               recurrent_to_input_weights->info(), recurrent_to_forget_weights->info(), recurrent_to_cell_weights->info(), recurrent_to_output_weights->info(),
                                                               input_gate_bias->info(), forget_gate_bias->info(), cell_bias->info(), output_gate_bias->info(), cell_state_in->info(), output_state_in->info(), cell_state_out->info(), output_state_out->info()));
+
+    ARM_COMPUTE_LOG_PARAMS(input, input_to_input_weights, input_to_forget_weights, input_to_cell_weights, input_to_output_weights,
+                           recurrent_to_input_weights, recurrent_to_forget_weights, recurrent_to_cell_weights, recurrent_to_output_weights,
+                           input_gate_bias, forget_gate_bias, cell_bias, output_gate_bias, cell_state_in, output_state_in, cell_state_out, output_state_out);
 
     const int input_size  = input->info()->dimension(0);
     const int batch_size  = input->info()->dimension(1);
@@ -136,13 +143,18 @@ void NELSTMLayerQuantized::configure(const ITensor *input,
     _output_lowp.allocator()->init(TensorInfo(_output_highp.info()->tensor_shape(), 1, DataType::QSYMM16, qsymm_3));
 
     const float multiplier        = 4096.f * qasymm.uniform().scale * qweights.uniform().scale;
-    int         output_multiplier = 0;
-    int         output_shift      = 0;
-
-    quantization::calculate_quantized_multiplier_less_than_one(multiplier, &output_multiplier, &output_shift);
+    int32_t     output_multiplier = 0;
+    int32_t     output_shift      = 0;
+    quantization::calculate_quantized_multiplier(multiplier, &output_multiplier, &output_shift);
 
     _memory_group.manage(&_output_lowp);
-    _output_stage.configure(&_output_highp, &_bias, &_output_lowp, output_multiplier, output_shift);
+
+    GEMMLowpOutputStageInfo info;
+    info.type                = GEMMLowpOutputStageType::QUANTIZE_DOWN_FIXEDPOINT;
+    info.gemmlowp_multiplier = output_multiplier;
+    info.gemmlowp_shift      = output_shift;
+    info.output_data_type    = DataType::QSYMM16;
+    _output_stage.configure(&_output_highp, &_bias, &_output_lowp, info);
     _output_highp.allocator()->allocate();
     _bias.allocator()->allocate();
 
@@ -340,14 +352,20 @@ Status NELSTMLayerQuantized::validate(const ITensorInfo *input,
     input_concatenated.set_quantization_info(QuantizationInfo(qasymm.uniform().scale, qasymm.uniform().offset));
     weights_transposed.set_quantization_info(QuantizationInfo(qweights.uniform().scale, qweights.uniform().offset));
 
-    // multiplier = (input_scale * weights_scale) / output_scale (2 ^ (-12))
     const TensorInfo output_lowp(output_highp.tensor_shape(), 1, DataType::QSYMM16, qsymm_3);
 
-    const float multiplier = 4096.f * qasymm.uniform().scale * qweights.uniform().scale;
-    ARM_COMPUTE_UNUSED(multiplier);
-    ARM_COMPUTE_RETURN_ERROR_ON(multiplier > 1.0f);
+    const float multiplier        = 4096.f * qasymm.uniform().scale * qweights.uniform().scale;
+    int32_t     output_multiplier = 0;
+    int32_t     output_shift      = 0;
+    ARM_COMPUTE_RETURN_ON_ERROR(quantization::calculate_quantized_multiplier(multiplier, &output_multiplier, &output_shift));
+
     // _output_stage
-    ARM_COMPUTE_RETURN_ON_ERROR(NEGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPoint::validate(&output_highp, &bias_concatenated, &output_lowp));
+    GEMMLowpOutputStageInfo info;
+    info.type                = GEMMLowpOutputStageType::QUANTIZE_DOWN_FIXEDPOINT;
+    info.gemmlowp_multiplier = output_multiplier;
+    info.gemmlowp_shift      = output_shift;
+    info.output_data_type    = DataType::QSYMM16;
+    ARM_COMPUTE_RETURN_ON_ERROR(NEGEMMLowpOutputStage::validate(&output_highp, &bias_concatenated, &output_lowp, info));
 
     TensorInfo input_gate_input;
     TensorInfo forget_gate_input;
@@ -483,7 +501,7 @@ void NELSTMLayerQuantized::run()
     _tanh_output_state.run();
     _mul3.run();
 
-    // Requantize output state from QSYMM16 to QASYMM16
+    // Requantize output state from QSYMM16 to QASYMM8
     _dequantize.run();
     _quantize.run();
 }

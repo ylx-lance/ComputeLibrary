@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_NODES_FWD_H__
-#define __ARM_COMPUTE_GRAPH_NODES_FWD_H__
+#ifndef ARM_COMPUTE_GRAPH_NODES_FWD_H
+#define ARM_COMPUTE_GRAPH_NODES_FWD_H
 
 namespace arm_compute
 {
@@ -31,6 +31,7 @@ namespace graph
 // Forward declarations
 class INode;
 class ActivationLayerNode;
+class ArgMinMaxLayerNode;
 class BatchNormalizationLayerNode;
 class BoundingBoxTransformLayerNode;
 class ChannelShuffleLayerNode;
@@ -38,7 +39,9 @@ class ConcatenateLayerNode;
 class ConstNode;
 class ConvolutionLayerNode;
 class DeconvolutionLayerNode;
+class DepthToSpaceLayerNode;
 class DepthwiseConvolutionLayerNode;
+class DequantizationLayerNode;
 class DetectionOutputLayerNode;
 class DetectionPostProcessLayerNode;
 class DummyNode;
@@ -46,17 +49,23 @@ class EltwiseLayerNode;
 class FlattenLayerNode;
 class FullyConnectedLayerNode;
 class FusedConvolutionBatchNormalizationNode;
+class FusedConvolutionWithPostOpNode;
 class FusedDepthwiseConvolutionBatchNormalizationNode;
+class FusedConvolutionBatchNormalizationWithPostOpsNode;
 class GenerateProposalsLayerNode;
 class InputNode;
+class L2NormalizeLayerNode;
 class NormalizationLayerNode;
 class NormalizePlanarYUVLayerNode;
 class OutputNode;
 class PadLayerNode;
 class PermuteLayerNode;
 class PoolingLayerNode;
+class PReluLayerNode;
+class PrintLayerNode;
 class PriorBoxLayerNode;
 class QuantizationLayerNode;
+class ReductionLayerNode;
 class ReorgLayerNode;
 class ReshapeLayerNode;
 class ResizeLayerNode;
@@ -65,8 +74,7 @@ class SoftmaxLayerNode;
 class SliceLayerNode;
 class SplitLayerNode;
 class StackLayerNode;
-class UpsampleLayerNode;
-class YOLOLayerNode;
+class StridedSliceLayerNode;
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_NODES_FWD_H__ */
+#endif /* ARM_COMPUTE_GRAPH_NODES_FWD_H */

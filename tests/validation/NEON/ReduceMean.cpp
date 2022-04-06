@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -44,9 +44,10 @@ namespace
 {
 constexpr AbsoluteTolerance<float> tolerance_f32(0.001f); /**< Tolerance value for comparing reference's output against implementation's output for 32-bit floating-point type */
 #ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
-constexpr AbsoluteTolerance<float> tolerance_f16(0.03f);   /**< Tolerance value for comparing reference's output against implementation's output for 16-bit floating-point type */
-#endif                                                     // __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
-constexpr AbsoluteTolerance<uint8_t> tolerance_qasymm8(1); /**< Tolerance value for comparing reference's output against implementation's output for 8-bit asymmetric quantized type */
+constexpr AbsoluteTolerance<float> tolerance_f16(0.03f); /**< Tolerance value for comparing reference's output against implementation's output for 16-bit floating-point type */
+#endif                                                   // __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+constexpr AbsoluteTolerance<uint8_t> tolerance_u8(1);    /**< Tolerance value for comparing reference's output against implementation's output for unsigned 8-bit asymmetric quantized type */
+constexpr AbsoluteTolerance<int8_t>  tolerance_s8(2);    /**< Tolerance value for comparing reference's output against implementation's output for signed 8-bit asymmetric quantized type */
 
 const auto axis_keep = combine(framework::dataset::make("Axis", { Coordinates(0), Coordinates(1, 0), Coordinates(1, 2), Coordinates(0, 2), Coordinates(1, 3), Coordinates(0, 1, 2, 3) }),
                                framework::dataset::make("KeepDims", { true }));
@@ -57,46 +58,30 @@ TEST_SUITE(ReduceMean)
 
 // *INDENT-OFF*
 // clang-format off
-DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
+DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(zip(
         framework::dataset::make("InputInfo", { TensorInfo(TensorShape(27U, 3U, 16U, 2U), 1, DataType::F32), // Invalid axis
                                                 TensorInfo(TensorShape(27U, 3U, 16U, 2U), 1, DataType::F32), // Invalid output shape
-                                                TensorInfo(TensorShape(32U, 16U, 16U, 2U), 1, DataType::F32)
+                                                TensorInfo(TensorShape(32U, 16U, 16U, 2U), 1, DataType::F32),// OK
+                                                TensorInfo(TensorShape{228U, 19U, 2U, 2U}, 1, DataType::F32),// OK
+                                                TensorInfo(TensorShape{228U, 19U, 2U, 1U}, 1, DataType::F32) // Cannot support axis 3 not valid
         }),
         framework::dataset::make("OutputInfo", { TensorInfo(TensorShape(27U, 3U, 1U, 2U), 1, DataType::F32),
                                                  TensorInfo(TensorShape(27U, 3U, 1U, 2U), 1, DataType::F32),
-                                                 TensorInfo(TensorShape(32U, 16U, 1U, 2U), 1, DataType::F32)
+                                                 TensorInfo(TensorShape(32U, 16U, 1U, 2U), 1, DataType::F32),
+                                                 TensorInfo(TensorShape(19U), 1, DataType::F32),
+                                                 TensorInfo(TensorShape(19U), 1, DataType::F32)
+
         })),
-        framework::dataset::make("Axis", { Coordinates(4), Coordinates(0,2), Coordinates(2) })),
-        framework::dataset::make("Expected", { false, false, true })),
-        input_info, output_info, axis, expected)
+        framework::dataset::make("Axis", { Coordinates(4), Coordinates(0,2), Coordinates(2), Coordinates(3,2,0), Coordinates(3,2,0) })),
+        framework::dataset::make("Keep", { true, true, true, false, false })),
+        framework::dataset::make("Expected", { false, false, true, true, false })),
+        input_info, output_info, axis, keep, expected)
 {
-    const Status status = NEReduceMean::validate(&input_info.clone()->set_is_resizable(false), axis, true, &output_info.clone()->set_is_resizable(false));
+    const Status status = NEReduceMean::validate(&input_info.clone()->set_is_resizable(false), axis, keep, &output_info.clone()->set_is_resizable(false));
     ARM_COMPUTE_EXPECT(bool(status) == expected, framework::LogLevel::ERRORS);
 }
 // clang-format on
 // *INDENT-ON*
-
-DATA_TEST_CASE(Configuration,
-               framework::DatasetMode::ALL,
-               combine(datasets::SmallShapes(), framework::dataset::make("DataType", { DataType::F32 })),
-               shape, data_type)
-{
-    // Create tensors
-    Tensor ref_src = create_tensor<Tensor>(shape, data_type);
-    Tensor dst;
-
-    Coordinates axis(1);
-
-    // Create and Configure function
-    NEReduceMean reduce_mean;
-    reduce_mean.configure(&ref_src, axis, true, &dst);
-
-    // Validate valid region
-    TensorShape output_shape = shape;
-    output_shape.set(1, 1);
-    const ValidRegion valid_region = shape_to_valid_region(output_shape);
-    validate(dst.info()->valid_region(), valid_region);
-}
 
 template <typename T>
 using NEReduceMeanFixture = ReduceMeanFixture<Tensor, Accessor, NEReduceMean, T>;
@@ -153,24 +138,77 @@ TEST_SUITE(QASYMM8)
 FIXTURE_DATA_TEST_CASE(RunSmall,
                        NEReduceMeanQuantizedFixture<uint8_t>,
                        framework::DatasetMode::PRECOMMIT,
-                       combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8)), concat(axis_keep, axis_drop)), framework::dataset::make("QuantizationInfo", { QuantizationInfo(1.f / 255, 0) })))
+                       combine(combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8)), concat(axis_keep, axis_drop)),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 255, 5) })),
+                               framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.f / 255, 5) })))
 {
     // Validate output
-    validate(Accessor(_target), _reference, tolerance_qasymm8);
+    validate(Accessor(_target), _reference, tolerance_u8);
 }
+
+TEST_SUITE(Requant)
+FIXTURE_DATA_TEST_CASE(RunSmall,
+                       NEReduceMeanQuantizedFixture<uint8_t>,
+                       framework::DatasetMode::PRECOMMIT,
+                       combine(combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8)), axis_drop),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 255, 5) })),
+                               framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.f / 200, 16) })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_u8);
+}
+TEST_SUITE_END() // Requant
 
 FIXTURE_DATA_TEST_CASE(RunLarge,
                        NEReduceMeanQuantizedFixture<uint8_t>,
                        framework::DatasetMode::NIGHTLY,
-                       combine(combine(combine(datasets::Large4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8)), concat(axis_keep, axis_drop)), framework::dataset::make("QuantizationInfo", { QuantizationInfo(1.f / 255, 0) })))
+                       combine(combine(combine(combine(datasets::Large4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8)), concat(axis_keep, axis_drop)),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 255, 5) })),
+                               framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.f / 255, 5) })))
 {
     // Validate output
-    validate(Accessor(_target), _reference, tolerance_qasymm8);
+    validate(Accessor(_target), _reference, tolerance_u8);
 }
 TEST_SUITE_END() // QASYMM8
+
+TEST_SUITE(QASYMM8_SIGNED)
+FIXTURE_DATA_TEST_CASE(RunSmall,
+                       NEReduceMeanQuantizedFixture<int8_t>,
+                       framework::DatasetMode::PRECOMMIT,
+                       combine(combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)), concat(axis_keep, axis_drop)),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 127, -10), QuantizationInfo(1.f / 250, -20) })),
+                               framework::dataset::make("QuantizationInfoInputOutput", { QuantizationInfo(1.f / 127, -10) })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_s8);
+}
+TEST_SUITE(Requant)
+FIXTURE_DATA_TEST_CASE(RunSmall,
+                       NEReduceMeanQuantizedFixture<int8_t>,
+                       framework::DatasetMode::PRECOMMIT,
+                       combine(combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)), axis_drop),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 102, 2) })),
+                               framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.f / 113, 10) })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_s8);
+}
+TEST_SUITE_END() // Requant
+
+FIXTURE_DATA_TEST_CASE(RunLarge,
+                       NEReduceMeanQuantizedFixture<int8_t>,
+                       framework::DatasetMode::NIGHTLY,
+                       combine(combine(combine(combine(datasets::Large4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)), concat(axis_keep, axis_drop)),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 127, -10) })),
+                               framework::dataset::make("QuantizationInfoInputOutput", { QuantizationInfo(1.f / 127, -10) })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_s8);
+}
+TEST_SUITE_END() // QASYMM8_SIGNED
 TEST_SUITE_END() // Quantized
 TEST_SUITE_END() // ReduceMean
-TEST_SUITE_END() // NEON
+TEST_SUITE_END() // Neon
 } // namespace validation
 } // namespace test
 } // namespace arm_compute

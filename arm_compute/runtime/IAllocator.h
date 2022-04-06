@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_IALLOCATOR_H__
-#define __ARM_COMPUTE_IALLOCATOR_H__
+#ifndef ARM_COMPUTE_IALLOCATOR_H
+#define ARM_COMPUTE_IALLOCATOR_H
 
 #include "arm_compute/runtime/IMemoryRegion.h"
 
@@ -37,7 +37,6 @@ class IAllocator
 public:
     /** Default virtual destructor. */
     virtual ~IAllocator() = default;
-    // TODO (COMPMID-1088) : Change allocator and rest interfaces to use IMemoryRegion
     /** Interface to be implemented by the child class to allocate bytes
      *
      * @param[in] size      Size to allocate
@@ -58,4 +57,4 @@ public:
     virtual std::unique_ptr<IMemoryRegion> make_region(size_t size, size_t alignment) = 0;
 };
 } // arm_compute
-#endif /*__ARM_COMPUTE_IALLOCATOR_H__ */
+#endif /*ARM_COMPUTE_IALLOCATOR_H */

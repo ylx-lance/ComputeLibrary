@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -42,15 +42,15 @@ namespace test
 {
 namespace validation
 {
-template <typename TensorType, typename AccessorType, typename FunctionType, typename T>
-class QuantizationValidationFixture : public framework::Fixture
+template <typename TensorType, typename AccessorType, typename FunctionType, typename Tin, typename Tout>
+class QuantizationValidationGenericFixture : public framework::Fixture
 {
 public:
     template <typename...>
-    void setup(TensorShape shape, DataType data_type, QuantizationInfo quant_info)
+    void setup(TensorShape shape, DataType data_type_in, DataType data_type_out, QuantizationInfo qinfo, QuantizationInfo qinfo_in)
     {
-        _target    = compute_target(shape, data_type, quant_info);
-        _reference = compute_reference(shape, data_type, quant_info);
+        _target    = compute_target(shape, data_type_in, data_type_out, qinfo, qinfo_in);
+        _reference = compute_reference(shape, data_type_in, data_type_out, qinfo, qinfo_in);
     }
 
 protected:
@@ -60,25 +60,25 @@ protected:
         library->fill_tensor_uniform(tensor, 0);
     }
 
-    TensorType compute_target(const TensorShape &shape, DataType data_type, QuantizationInfo quant_info)
+    TensorType compute_target(const TensorShape &shape, DataType data_type_in, DataType data_type_out, QuantizationInfo qinfo, QuantizationInfo qinfo_in)
     {
         // Create tensors
-        TensorType src = create_tensor<TensorType>(shape, data_type);
-        TensorType dst = create_tensor<TensorType>(shape, DataType::QASYMM8, 1, quant_info);
+        TensorType src = create_tensor<TensorType>(shape, data_type_in, 1, qinfo_in);
+        TensorType dst = create_tensor<TensorType>(shape, data_type_out, 1, qinfo);
 
         // Create and configure function
         FunctionType quantization_layer;
         quantization_layer.configure(&src, &dst);
 
-        ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(dst.info()->is_resizable());
 
         // Allocate tensors
         src.allocator()->allocate();
         dst.allocator()->allocate();
 
-        ARM_COMPUTE_EXPECT(!src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(!src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!dst.info()->is_resizable());
 
         // Fill tensors
         fill(AccessorType(src));
@@ -89,19 +89,30 @@ protected:
         return dst;
     }
 
-    SimpleTensor<uint8_t> compute_reference(const TensorShape &shape, DataType data_type, QuantizationInfo quant_info)
+    SimpleTensor<Tout> compute_reference(const TensorShape &shape, DataType data_type_in, DataType data_type_out, QuantizationInfo qinfo, QuantizationInfo qinfo_in)
     {
         // Create reference
-        SimpleTensor<T> src{ shape, data_type };
+        SimpleTensor<Tin> src{ shape, data_type_in, 1, qinfo_in };
 
         // Fill reference
         fill(src);
 
-        return reference::quantization_layer<T>(src, quant_info);
+        return reference::quantization_layer<Tin, Tout>(src, data_type_out, qinfo);
     }
 
-    TensorType            _target{};
-    SimpleTensor<uint8_t> _reference{};
+    TensorType         _target{};
+    SimpleTensor<Tout> _reference{};
+};
+
+template <typename TensorType, typename AccessorType, typename FunctionType, typename Tin, typename Tout>
+class QuantizationValidationFixture : public QuantizationValidationGenericFixture<TensorType, AccessorType, FunctionType, Tin, Tout>
+{
+public:
+    template <typename...>
+    void setup(TensorShape shape, DataType data_type_in, DataType data_type_out, QuantizationInfo qinfo)
+    {
+        QuantizationValidationGenericFixture<TensorType, AccessorType, FunctionType, Tin, Tout>::setup(shape, data_type_in, data_type_out, qinfo, QuantizationInfo());
+    }
 };
 
 } // namespace validation

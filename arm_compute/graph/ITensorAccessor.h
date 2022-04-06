@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2019,2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_ITENSOR_ACCESSOR_H__
-#define __ARM_COMPUTE_GRAPH_ITENSOR_ACCESSOR_H__
+#ifndef ARM_COMPUTE_GRAPH_ITENSOR_ACCESSOR_H
+#define ARM_COMPUTE_GRAPH_ITENSOR_ACCESSOR_H
 
 #include "arm_compute/core/ITensor.h"
 
@@ -45,9 +45,17 @@ public:
      * @return True if access is successful else false
      */
     virtual bool access_tensor(ITensor &tensor) = 0;
+    /** Returns true if the tensor data is being accessed
+     *
+     * @return True if the tensor data is being accessed by the accessor. False otherwise
+     */
+    virtual bool access_tensor_data()
+    {
+        return true;
+    }
 };
 
 using ITensorAccessorUPtr = std::unique_ptr<ITensorAccessor>;
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_SUB_STREAM_H__ */
+#endif /* ARM_COMPUTE_GRAPH_SUB_STREAM_H */

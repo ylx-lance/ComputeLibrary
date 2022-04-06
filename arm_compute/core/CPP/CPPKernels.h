@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,18 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CPPKERNELS_H__
-#define __ARM_COMPUTE_CPPKERNELS_H__
+#ifndef ARM_COMPUTE_CPPKERNELS_H
+#define ARM_COMPUTE_CPPKERNELS_H
 
 /* Header regrouping all the CPP kernels */
 #include "arm_compute/core/CPP/kernels/CPPBoxWithNonMaximaSuppressionLimitKernel.h"
-#include "arm_compute/core/CPP/kernels/CPPCornerCandidatesKernel.h"
-#include "arm_compute/core/CPP/kernels/CPPDetectionWindowNonMaximaSuppressionKernel.h"
-#include "arm_compute/core/CPP/kernels/CPPFlipWeightsKernel.h"
 #include "arm_compute/core/CPP/kernels/CPPNonMaximumSuppressionKernel.h"
 #include "arm_compute/core/CPP/kernels/CPPPermuteKernel.h"
-#include "arm_compute/core/CPP/kernels/CPPSortEuclideanDistanceKernel.h"
 #include "arm_compute/core/CPP/kernels/CPPTopKVKernel.h"
 #include "arm_compute/core/CPP/kernels/CPPUpsampleKernel.h"
 
-#endif /* __ARM_COMPUTE_CPPKERNELS_H__ */
+#endif /* ARM_COMPUTE_CPPKERNELS_H */

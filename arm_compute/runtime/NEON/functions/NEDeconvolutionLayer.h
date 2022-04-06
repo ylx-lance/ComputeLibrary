@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,14 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NEDECONVOLUTIONLAYER_H__
-#define __ARM_COMPUTE_NEDECONVOLUTIONLAYER_H__
+#ifndef ARM_COMPUTE_NEDECONVOLUTIONLAYER_H
+#define ARM_COMPUTE_NEDECONVOLUTIONLAYER_H
 
 #include "arm_compute/runtime/CPP/functions/CPPUpsample.h"
 #include "arm_compute/runtime/NEON/functions/NEConvolutionLayer.h"
 #include "arm_compute/runtime/NEON/functions/NEDirectConvolutionLayer.h"
+#include "arm_compute/runtime/NEON/functions/NEReverse.h"
 
-#include "arm_compute/core/CPP/kernels/CPPFlipWeightsKernel.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
@@ -62,36 +62,50 @@ namespace arm_compute
  *      stride_x and stride_y is the input stride of the first and second dimension.
  *
  * The weights used by Deconvolution are supposed to be the same as the ones used for Convolution. Therefore, it will be necessary to use the weights in the
- * reverse order to perform an actual convolution. This is achieved by using the @ref CPPFlipWeightsKernel.
+ * reverse order to perform an actual convolution. This is achieved by using @ref NEReverse.
  *
- * This function calls the following NEON kernels/functions:
+ * This function calls the following kernels/functions:
  *
  * -# @ref CPPUpsample
  * -# @ref NEConvolutionLayer
+ * -# @ref NEReverse
  *
  */
 class NEDeconvolutionLayer : public IFunction
 {
 public:
-    /** Default constructor */
+    /** Constructor */
     NEDeconvolutionLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
-
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEDeconvolutionLayer(const NEDeconvolutionLayer &) = delete;
+    /** Default move constructor */
+    NEDeconvolutionLayer(NEDeconvolutionLayer &&) = default;
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEDeconvolutionLayer &operator=(const NEDeconvolutionLayer &) = delete;
-    /** Allow instances of this class to be moved */
-    NEDeconvolutionLayer(NEDeconvolutionLayer &&) = default;
-    /** Allow instances of this class to be moved */
+    /** Default move assignment operator */
     NEDeconvolutionLayer &operator=(NEDeconvolutionLayer &&) = default;
     /** Default destructor */
-    virtual ~NEDeconvolutionLayer() = default;
+    ~NEDeconvolutionLayer() = default;
 
     /** Set the input, weights, biases and output tensors.
      *
-     * @param[in,out] input   Input tensor. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs. Data types supported: F32/F16/QASYMM8.
-     * @param[in]     weights The 4d weights with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input.
-     * @param[in]     bias    Optional, ignored if NULL. The biases have one dimension. Data type supported: Data types supported: S32 for QASYMM8 input, F32 for F32 input, F16 for F16 input.
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src0           |src1               |src2   |dst            |
+     * |:--------------|:------------------|:------|:--------------|
+     * |F16            |F16                |F16    |F16            |
+     * |F32            |F32                |F32    |F32            |
+     * |QASYMM8        |QASYMM8            |S32    |QASYMM8        |
+     * |QASYMM8        |QSYMM8_PER_CHANNEL |S32    |QASYMM8        |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED     |S32    |QASYMM8_SIGNED |
+     * |QASYMM8_SIGNED |QSYMM8_PER_CHANNEL |S32    |QASYMM8_SIGNED |
+     *
+     * @param[in,out] input   Input tensor. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs. Data types supported: F32/F16/QASYMM8/QASYMM8_SIGNED.
+     * @param[in]     weights The 4d weights with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input, also could be QSYMM8_PER_CHANNEL if input is QASYMM8/QASYMM8_SIGNED.
+     * @param[in]     bias    Optional, ignored if NULL. The biases have one dimension. Data type supported: Data types supported: S32 for QASYMM8/QASYMM8_SIGNED input, F32 for F32 input, F16 for F16 input.
      * @param[out]    output  Output tensor. The output has the same number of dimensions as the @p input.
      * @param[in]     info    Contains padding and policies to be used in the deconvolution, this is decribed in @ref PadStrideInfo.
      *
@@ -99,9 +113,9 @@ public:
     void configure(ITensor *input, const ITensor *weights, const ITensor *bias, ITensor *output, const PadStrideInfo &info);
     /** Static function to check if given info will lead to a valid configuration of @ref NEDeconvolutionLayer
      *
-     * @param[in] input   Input tensor info. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs. Data types supported: F32/F16/QASYMM8.
-     * @param[in] weights The 4d weights info with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input.
-     * @param[in] bias    (Optional) The biases have one dimension. Data type supported: Data types supported: S32 for QASYMM8 input, F32 for F32 input, F16 for F16 input.
+     * @param[in] input   Input tensor info. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs. Data types supported: F32/F16/QASYMM8/QASYMM8_SIGNED.
+     * @param[in] weights The 4d weights info with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input, also could be QSYMM8_PER_CHANNEL if input is QASYMM8/QASYMM8_SIGNED.
+     * @param[in] bias    (Optional) The biases have one dimension. Data type supported: Data types supported: S32 for QASYMM8/QASYMM8_SIGNED input, F32 for F32 input, F16 for F16 input.
      * @param[in] output  Output tensor info. The output has the same number of dimensions as the @p input.
      * @param[in] info    Contains padding and policies to be used in the deconvolution, this is decribed in @ref PadStrideInfo.
      *
@@ -114,23 +128,17 @@ public:
     void prepare() override;
 
 private:
-    MemoryGroup          _memory_group;
-    NEConvolutionLayer   _conv_f;
-    CPPUpsample          _upsample_f;
-    CPPFlipWeightsKernel _flip_weights;
-    NEPermute            _permute_input;
-    NEPermute            _permute_weights;
-    NEPermute            _permute_output;
-    Tensor               _scaled_output;
-    Tensor               _weights_flipped;
-    Tensor               _permuted_input;
-    Tensor               _permuted_weights;
-    Tensor               _permuted_output;
-    bool                 _is_nchw;
-    const ITensor       *_original_weights;
-    ITensor             *_input;
-    PadStrideInfo        _info;
-    bool                 _is_prepared;
+    MemoryGroup        _memory_group;
+    NEConvolutionLayer _conv_f;
+    CPPUpsample        _upsample_f;
+    NEReverse          _flip_weights;
+    Tensor             _scaled_output;
+    Tensor             _weights_flipped;
+    Tensor             _flip_axis;
+    const ITensor     *_original_weights;
+    ITensor           *_input;
+    PadStrideInfo      _info;
+    bool               _is_prepared;
 };
 } // arm_compute
-#endif /* __ARM_COMPUTE_NEDECONVOLUTIONLAYER_H__ */
+#endif /* ARM_COMPUTE_NEDECONVOLUTIONLAYER_H */

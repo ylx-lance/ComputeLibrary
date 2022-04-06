@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -49,16 +49,17 @@ void vector_matrix_multiply(const SimpleTensor<T> &src, const SimpleTensor<T> &w
     const T *weights_ptr = weights.data();
     const TB *bias_ptr    = bias.data();
     T        *dst_ptr     = dst.data() + offset_dst;
-
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(int y = 0; y < rows_weights; ++y)
     {
-        dst_ptr[y] = std::inner_product(src_ptr, src_ptr + cols_weights, weights_ptr, static_cast<T>(0)) + bias_ptr[y];
-        weights_ptr += cols_weights;
+        dst_ptr[y] = std::inner_product(src_ptr, src_ptr + cols_weights, &weights_ptr[cols_weights * y], static_cast<T>(0)) + bias_ptr[y];
     }
 }
 
 // Vector matrix multiply for quantized type
-template < typename T, typename TB, typename std::enable_if < std::is_same<T, uint8_t>::value &&std::is_same<TB, int32_t>::value, int >::type = 0 >
+template < typename T, typename TB, typename std::enable_if < (std::is_same<T, uint8_t>::value || std::is_same<T, int8_t>::value) &&std::is_same<TB, int32_t>::value, int >::type = 0 >
 void vector_matrix_multiply(const SimpleTensor<T> &src, const SimpleTensor<T> &weights, const SimpleTensor<TB> &bias, SimpleTensor<T> &dst, int offset_src, int offset_dst,
                             int cols_weights, int rows_weights)
 {
@@ -81,8 +82,13 @@ void vector_matrix_multiply(const SimpleTensor<T> &src, const SimpleTensor<T> &w
     int         output_multiplier = 0;
     int         output_shift      = 0;
     const float multiplier        = input_scale * weights_scale / output_scale;
-    arm_compute::quantization::calculate_quantized_multiplier_less_than_one(multiplier, &output_multiplier, &output_shift);
+    arm_compute::quantization::calculate_quantized_multiplier(multiplier, &output_multiplier, &output_shift);
 
+    const int min = std::numeric_limits<T>::lowest();
+    const int max = std::numeric_limits<T>::max();
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(int y = 0; y < rows_weights; ++y)
     {
         // Reset accumulator
@@ -90,20 +96,17 @@ void vector_matrix_multiply(const SimpleTensor<T> &src, const SimpleTensor<T> &w
 
         for(int x = 0; x < cols_weights; ++x)
         {
-            acc += (src_ptr[x] + input_offset) * (weights_ptr[x] + weights_offset);
+            acc += (src_ptr[x] + input_offset) * (weights_ptr[x + y * cols_weights] + weights_offset);
         }
 
         // Accumulate the bias
         acc += bias_ptr[y];
 
-        acc = asymm_rounding_divide_by_pow2(asymm_int_mult(acc, output_multiplier), output_shift);
-        acc += output_offset;
-        acc = utility::clamp<int32_t>(acc, 0, 255);
+        // Quantize down
+        acc = quantize_down_scale_by_fixedpoint(acc, output_multiplier, output_shift, output_offset, min, max);
 
         // Store the result
         dst_ptr[y] = static_cast<T>(acc);
-
-        weights_ptr += cols_weights;
     }
 }
 } // namespace
@@ -120,7 +123,7 @@ SimpleTensor<T> fully_connected_layer(const SimpleTensor<T> &src, const SimpleTe
     // Create reference
     SimpleTensor<T> dst{ TensorShape{ dst_shape }, src.data_type(), 1, out_quant_info };
 
-    // Sanity checks
+    // Health checks
     const int          num_batch_dimensions = std::max(0, static_cast<int>(dst_shape.num_dimensions()) - 1);
     const int          num_input_dimensions = src.shape().num_dimensions() - num_batch_dimensions;
     const unsigned int linear_input_size    = src.shape().total_size_lower(num_input_dimensions);
@@ -161,6 +164,8 @@ template SimpleTensor<half> fully_connected_layer(const SimpleTensor<half> &src,
                                                   QuantizationInfo out_quant_info);
 template SimpleTensor<uint8_t> fully_connected_layer(const SimpleTensor<uint8_t> &src, const SimpleTensor<uint8_t> &weights, const SimpleTensor<int32_t> &bias, const TensorShape &dst_shape,
                                                      QuantizationInfo out_quant_info);
+template SimpleTensor<int8_t> fully_connected_layer(const SimpleTensor<int8_t> &src, const SimpleTensor<int8_t> &weights, const SimpleTensor<int32_t> &bias, const TensorShape &dst_shape,
+                                                    QuantizationInfo out_quant_info);
 } // namespace reference
 } // namespace validation
 } // namespace test

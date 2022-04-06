@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -71,7 +71,7 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
     inputs_vector_info.emplace_back(std::move(input_info1));
     inputs_vector_info.emplace_back(std::move(input_info2));
 
-    std::vector<ITensorInfo *> inputs_vector_info_raw;
+    std::vector<const ITensorInfo *> inputs_vector_info_raw;
     inputs_vector_info_raw.reserve(inputs_vector_info.size());
     for(auto &input : inputs_vector_info)
     {
@@ -118,15 +118,18 @@ FIXTURE_DATA_TEST_CASE(RunSmall, NEHeightConcatenateLayerFixture<uint8_t>, frame
     // Validate output
     validate(Accessor(_target), _reference);
 }
-FIXTURE_DATA_TEST_CASE(RunLarge, NEHeightConcatenateLayerFixture<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(datasets::ConcatenateLayerShapes(),
-                                                                                                                    framework::dataset::make("DataType",
-                                                                                                                            DataType::QASYMM8)),
-                                                                                                                    framework::dataset::make("Axis", 1)))
+TEST_SUITE_END() // QASYMM8
+
+TEST_SUITE(QASYMM8_SIGNED)
+FIXTURE_DATA_TEST_CASE(RunSmall, NEHeightConcatenateLayerFixture<int8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(concat(datasets::Small2DShapes(), datasets::Tiny4DShapes()),
+                                                                                                                     framework::dataset::make("DataType",
+                                                                                                                             DataType::QASYMM8_SIGNED)),
+                                                                                                                     framework::dataset::make("Axis", 1)))
 {
     // Validate output
     validate(Accessor(_target), _reference);
 }
-TEST_SUITE_END() // QASYMM8
+TEST_SUITE_END() // QASYMM8_SIGNED
 TEST_SUITE_END() // Quantized
 
 TEST_SUITE_END()

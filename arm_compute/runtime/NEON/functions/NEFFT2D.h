@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NEFFT2D_H__
-#define __ARM_COMPUTE_NEFFT2D_H__
+#ifndef ARM_COMPUTE_NEFFT2D_H
+#define ARM_COMPUTE_NEFFT2D_H
 
 #include "arm_compute/runtime/IFunction.h"
 
@@ -36,7 +36,7 @@ namespace arm_compute
 // Forward declaration
 class ITensor;
 
-/** Basic function to execute two dimensional FFT. This function calls the following NEON kernels:
+/** Basic function to execute two dimensional FFT. This function calls the following kernels:
  *
  * -# @ref NEFFT1D 1D FFT is performed on the first given axis
  * -# @ref NEFFT1D 1D FFT is performed on the second given axis
@@ -46,7 +46,25 @@ class NEFFT2D : public IFunction
 public:
     /** Default Constructor */
     NEFFT2D(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEFFT2D(const NEFFT2D &) = delete;
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEFFT2D &operator=(const NEFFT2D &) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NEFFT2D(NEFFT2D &&) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NEFFT2D &operator=(NEFFT2D &&) = delete;
+    /** Default destructor */
+    ~NEFFT2D();
     /** Initialise the function's source and destinations
+     *
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src    |dst    |
+     * |:------|:------|
+     * |F32    |F32    |
      *
      * @param[in]  input  Source tensor. Data types supported: F32.
      * @param[out] output Destination tensor. Data types and data layouts supported: Same as @p input.
@@ -73,4 +91,4 @@ protected:
     Tensor      _first_pass_tensor;
 };
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_NEFFT2D_H__ */
+#endif /*ARM_COMPUTE_NEFFT2D_H */

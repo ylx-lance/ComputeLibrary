@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2022 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,10 +21,10 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GPUTARGET_H__
-#define __ARM_COMPUTE_GPUTARGET_H__
+#ifndef ARM_COMPUTE_GPUTARGET_H
+#define ARM_COMPUTE_GPUTARGET_H
 
-#include "arm_compute/core/Helpers.h"
+#include "support/Traits.h"
 
 #include <string>
 
@@ -48,10 +48,11 @@ enum class GPUTarget
     G51LIT        = 0x232,
     G52           = 0x240,
     G52LIT        = 0x241,
+    G31           = 0x242,
     G76           = 0x250,
     G77           = 0x310,
-    TBOX          = 0x320,
-    TODX          = 0x330,
+    G78           = 0x320,
+    G710          = 0x330,
 };
 
 /** Enable bitwise operations on GPUTarget enumerations */
@@ -104,4 +105,4 @@ inline bool gpu_target_is_in(GPUTarget target_to_check, GPUTarget target)
     return target_to_check == target;
 }
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GPUTARGET_H__ */
+#endif /* ARM_COMPUTE_GPUTARGET_H */

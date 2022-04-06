@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,7 +24,11 @@
 #include "arm_compute/runtime/NEON/functions/NEReductionOperation.h"
 
 #include "arm_compute/core/Helpers.h"
+#include "arm_compute/core/utils/misc/ShapeCalculator.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
+#include "src/common/utils/Log.h"
+#include "src/core/NEON/kernels/NEReductionOperationKernel.h"
+#include "src/core/helpers/AutoConfiguration.h"
 
 namespace arm_compute
 {
@@ -52,114 +56,99 @@ size_t reduction_window_split_dimension(unsigned int axis)
 }
 } // namespace
 
-NEReductionOperation::NEReductionOperation()
-    : _reduction_kernel(), _fill_border_kernel(), _window_split(0), _reduction_axis()
+NEReductionOperation::~NEReductionOperation() = default;
+
+NEReductionOperation::NEReductionOperation(std::shared_ptr<IMemoryManager> memory_manager)
+    : _memory_group(memory_manager), _reduction_kernel(), _reshape(), _output_internal(), _window_split(0), _reduction_axis(), _is_reshape_required(false)
 {
 }
 
-Status NEReductionOperation::validate(const ITensorInfo *input, const ITensorInfo *output, unsigned int axis, ReductionOperation op)
+Status NEReductionOperation::validate(const ITensorInfo *input, const ITensorInfo *output, unsigned int axis, ReductionOperation op, bool keep_dims)
 {
-    ARM_COMPUTE_RETURN_ON_ERROR(NEReductionOperationKernel::validate(input, output, axis, op));
+    ARM_COMPUTE_RETURN_ERROR_ON_MSG(axis >= TensorShape::num_max_dimensions, "Reduction axis greater than max number of dimensions");
+    ARM_COMPUTE_RETURN_ERROR_ON_MSG(axis > 3, "Unsupported reduction axis");
+
+    const auto is_reshape_required = !keep_dims;
+
+    auto *output_internal = output;
+
+    TensorInfo info_before_reshape;
+
+    if(is_reshape_required)
+    {
+        const TensorInfo expected_output_shape = output->clone()->set_tensor_shape(arm_compute::misc::shape_calculator::compute_reduced_shape(input->tensor_shape(), axis, keep_dims));
+        ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_SHAPES(&expected_output_shape, output);
+
+        auto shape_before_reshape = input->tensor_shape();
+        shape_before_reshape.set(axis, 1);
+
+        const auto input_num_channles = input->num_channels();
+        const auto input_qinfo        = input->quantization_info();
+        const auto is_arg_min_max     = (op == ReductionOperation::ARG_IDX_MAX) || (op == ReductionOperation::ARG_IDX_MIN);
+        const auto output_data_type   = is_arg_min_max ? DataType::S32 : output->data_type();
+
+        info_before_reshape.set_data_type(output_data_type).set_tensor_shape(shape_before_reshape).set_num_channels(input_num_channles).set_quantization_info(input_qinfo);
+
+        output_internal = &info_before_reshape;
+    }
+
+    ARM_COMPUTE_RETURN_ON_ERROR(NEReductionOperationKernel::validate(input, output_internal, axis, op));
+
+    if(is_reshape_required)
+    {
+        ARM_COMPUTE_RETURN_ON_ERROR(NEReshapeLayer::validate(output_internal, output));
+    }
 
     return Status{};
 }
 
-void NEReductionOperation::configure(ITensor *input, ITensor *output, unsigned int axis, ReductionOperation op)
+void NEReductionOperation::configure(ITensor *input, ITensor *output, unsigned int axis, ReductionOperation op, bool keep_dims)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
-    ARM_COMPUTE_ERROR_THROW_ON(NEReductionOperation::validate(input->info(), output->info(), axis, op));
+    ARM_COMPUTE_LOG_PARAMS(input, output, axis, op, keep_dims);
+
+    _is_reshape_required = !keep_dims;
+
+    auto      *output_internal = output;
+    const auto is_arg_min_max  = (op == ReductionOperation::ARG_IDX_MAX) || (op == ReductionOperation::ARG_IDX_MIN);
+
+    if(_is_reshape_required)
+    {
+        const auto output_internal_shape = arm_compute::misc::shape_calculator::compute_reduced_shape(input->info()->tensor_shape(), axis);
+        const auto output_external_shape = arm_compute::misc::shape_calculator::compute_reduced_shape(input->info()->tensor_shape(), axis, false);
+        const auto output_data_type      = is_arg_min_max ? DataType::S32 : input->info()->data_type();
+        const auto num_channels          = input->info()->num_channels();
+        const auto qinfo                 = input->info()->quantization_info();
+
+        _output_internal.allocator()->init(input->info()->clone()->set_data_type(output_data_type).set_tensor_shape(output_internal_shape).reset_padding().set_is_resizable(true).set_num_channels(
+                                               num_channels).set_quantization_info(qinfo));
+        _memory_group.manage(&_output_internal);
+        output_internal = &_output_internal;
+        auto_init_if_empty(*output->info(), input->info()->clone()->set_data_type(output_data_type).set_tensor_shape(output_external_shape).reset_padding().set_is_resizable(true));
+    }
+
+    ARM_COMPUTE_ERROR_THROW_ON(NEReductionOperation::validate(input->info(), output->info(), axis, op, keep_dims));
 
     // Configure reduction kernel
-    _reduction_kernel.configure(input, output, axis, op);
+    _reduction_kernel = std::make_unique<NEReductionOperationKernel>();
+    _reduction_kernel->configure(input, output_internal, axis, op);
     _window_split   = reduction_window_split_dimension(axis);
     _reduction_axis = axis;
 
-    if(axis == 0)
+    if(_is_reshape_required)
     {
-        // Configure fill border kernel
-        const BorderSize fill_border_size = _reduction_kernel.border_size();
-        PixelValue       pixelValue;
-        switch(op)
-        {
-            case ReductionOperation::PROD:
-            {
-                pixelValue = PixelValue(1, input->info()->data_type(), input->info()->quantization_info());
-                break;
-            }
-            case ReductionOperation::MIN:
-            {
-                switch(input->info()->data_type())
-                {
-                    case DataType::F32:
-                    {
-                        pixelValue = PixelValue(std::numeric_limits<float>::max());
-                        break;
-                    }
-                    case DataType::F16:
-                    {
-                        pixelValue = PixelValue(static_cast<half>(65504.0f));
-                        break;
-                    }
-                    case DataType::QASYMM8:
-                    {
-                        pixelValue = PixelValue(255, input->info()->data_type(), input->info()->quantization_info());
-                        break;
-                    }
-                    default:
-                    {
-                        ARM_COMPUTE_ERROR("Unsupported DataType");
-                    }
-                }
-                break;
-            }
-            case ReductionOperation::MAX:
-            {
-                switch(input->info()->data_type())
-                {
-                    case DataType::F32:
-                    {
-                        pixelValue = PixelValue(-std::numeric_limits<float>::max());
-                        break;
-                    }
-                    case DataType::F16:
-                    {
-                        pixelValue = PixelValue(static_cast<half>(-65504.0f));
-                        break;
-                    }
-                    case DataType::QASYMM8:
-                    {
-                        pixelValue = PixelValue(0, input->info()->data_type(), input->info()->quantization_info());
-                        break;
-                    }
-                    default:
-                    {
-                        ARM_COMPUTE_ERROR("Unsupported DataType");
-                    }
-                }
-                break;
-            }
-            case ReductionOperation::ARG_IDX_MAX:
-            case ReductionOperation::ARG_IDX_MIN:
-            case ReductionOperation::MEAN_SUM:
-            case ReductionOperation::SUM_SQUARE:
-            case ReductionOperation::SUM:
-            {
-                pixelValue = PixelValue(0, input->info()->data_type());
-                break;
-            }
-            default:
-                ARM_COMPUTE_ERROR("Reduction Operation unsupported");
-        }
-        _fill_border_kernel.configure(input, fill_border_size, BorderMode::CONSTANT, pixelValue);
+        _reshape.configure(output_internal, output);
+        _output_internal.allocator()->allocate();
     }
 }
 
 void NEReductionOperation::run()
 {
-    if(_reduction_axis == 0)
+    MemoryGroupResourceScope scope_mg(_memory_group);
+    NEScheduler::get().schedule(_reduction_kernel.get(), _window_split);
+    if(_is_reshape_required)
     {
-        NEScheduler::get().schedule(&_fill_border_kernel, Window::DimY);
+        _reshape.run();
     }
-    NEScheduler::get().schedule(&_reduction_kernel, _window_split);
 }
 } // namespace arm_compute

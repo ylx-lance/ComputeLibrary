@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_OFFSETLIFETIMEMANAGER_H__
-#define __ARM_COMPUTE_OFFSETLIFETIMEMANAGER_H__
+#ifndef ARM_COMPUTE_OFFSETLIFETIMEMANAGER_H
+#define ARM_COMPUTE_OFFSETLIFETIMEMANAGER_H
 
 #include "arm_compute/runtime/ISimpleLifetimeManager.h"
 
@@ -41,6 +41,9 @@ class IMemoryPool;
 class OffsetLifetimeManager : public ISimpleLifetimeManager
 {
 public:
+    using info_type = BlobInfo;
+
+public:
     /** Constructor */
     OffsetLifetimeManager();
     /** Prevent instances of this class to be copy constructed */
@@ -51,6 +54,11 @@ public:
     OffsetLifetimeManager(OffsetLifetimeManager &&) = default;
     /** Allow instances of this class to be moved */
     OffsetLifetimeManager &operator=(OffsetLifetimeManager &&) = default;
+    /** Accessor to the pool internal configuration meta-data
+     *
+     * @return Lifetime manager internal configuration meta-data
+     */
+    const info_type &info() const;
 
     // Inherited methods overridden:
     std::unique_ptr<IMemoryPool> create_pool(IAllocator *allocator) override;
@@ -64,4 +72,4 @@ private:
     BlobInfo _blob; /**< Memory blob size */
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_OFFSETLIFETIMEMANAGER_H__ */
+#endif /* ARM_COMPUTE_OFFSETLIFETIMEMANAGER_H */

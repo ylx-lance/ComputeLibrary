@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,24 +21,27 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLGEMMDECONVOLUTIONLAYER_H__
-#define __ARM_COMPUTE_CLGEMMDECONVOLUTIONLAYER_H__
+#ifndef ARM_COMPUTE_CLGEMMDECONVOLUTIONLAYER_H
+#define ARM_COMPUTE_CLGEMMDECONVOLUTIONLAYER_H
 
-#include "arm_compute/core/CL/kernels/CLDeconvolutionReshapeOutputKernel.h"
-#include "arm_compute/runtime/CL/CLMemoryGroup.h"
 #include "arm_compute/runtime/CL/CLTensor.h"
 #include "arm_compute/runtime/CL/functions/CLConvolutionLayer.h"
+#include "arm_compute/runtime/CL/functions/CLGEMM.h"
+#include "arm_compute/runtime/CL/functions/CLGEMMLowpMatrixMultiplyCore.h"
+#include "arm_compute/runtime/CL/functions/CLGEMMLowpOutputStage.h"
 #include "arm_compute/runtime/CL/functions/CLPermute.h"
 #include "arm_compute/runtime/CL/functions/CLReshapeLayer.h"
 #include "arm_compute/runtime/CL/functions/CLSlice.h"
 #include "arm_compute/runtime/CL/functions/CLTranspose.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
+#include "arm_compute/runtime/MemoryGroup.h"
 
 #include <memory>
 
 namespace arm_compute
 {
+class CLDeconvolutionReshapeOutputKernel;
 class ICLTensor;
 /** Function to run the deconvolution layer through a call to GEMM.
  *
@@ -67,7 +70,7 @@ class ICLTensor;
  * This function calls the following OpenCL kernels/functions:
  *
  * -# @ref CLGEMMLowpMatrixMultiplyCore
- * -# @ref CLGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint
+ * -# @ref CLGEMMLowpOutputStage
  * -# @ref CLPermute
  * -# @ref CLPermute
  * -# @ref CLReshapeLayer
@@ -88,18 +91,44 @@ public:
     CLGEMMDeconvolutionLayer &operator=(const CLGEMMDeconvolutionLayer &) = delete;
     /** Default move assignment operator */
     CLGEMMDeconvolutionLayer &operator=(CLGEMMDeconvolutionLayer &&) = default;
+    /** Default desctructor */
+    ~CLGEMMDeconvolutionLayer();
     /** Set the input, weights, biases and output tensors.
      *
-     * @param[in,out] input       Input tensor. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs. Data types supported: F16/F32. Data layout supported: NHWC
+     * Valid data layouts:
+     * - NHWC
+     *
+     * Valid data type configurations:
+     * |src0           |src1               |src2     |dst            |
+     * |:--------------|:------------------|:--------|:--------------|
+     * |F16            |F16                |F16      |F16            |
+     * |F32            |F32                |F32      |F32            |
+     * |QASYMM8        |QASYMM8            |S32      |QASYMM8        |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED     |S32      |QASYMM8_SIGNED |
+     *
+     * @param[in,out] input       Input tensor. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs.
+     *                            Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32. Data layout supported: NHWC
      * @param[in]     weights     The 4d weights with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input. Data layout supported: same as @p input.
      * @param[in]     bias        (Optional) The biases have one dimension. Data type supported: Same as @p input. Data layout supported: same as @p input.
      * @param[out]    output      Output tensor. The output has the same number of dimensions as the @p input. Data layout supported: same as @p input.
      * @param[in]     deconv_info Contains padding and policies to be used in the deconvolution, this is described in @ref PadStrideInfo. This function supports only stride_x = weights.width && stride_y = weights.height. Moreover, padding is not supported.
      */
     void configure(const ICLTensor *input, const ICLTensor *weights, const ICLTensor *bias, ICLTensor *output, const PadStrideInfo &deconv_info);
+    /** Set the input, weights, biases and output tensors.
+     *
+     * @param[in]     compile_context The compile context to be used.
+     * @param[in,out] input           Input tensor. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs.
+     *                                Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32. Data layout supported: NHWC
+     * @param[in]     weights         The 4d weights with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input. Data layout supported: same as @p input.
+     * @param[in]     bias            (Optional) The biases have one dimension. Data type supported: Same as @p input. Data layout supported: same as @p input.
+     * @param[out]    output          Output tensor. The output has the same number of dimensions as the @p input. Data layout supported: same as @p input.
+     * @param[in]     deconv_info     Contains padding and policies to be used in the deconvolution, this is described in @ref PadStrideInfo. This function supports only stride_x = weights.width && stride_y = weights.height. Moreover, padding is not supported.
+     */
+    void configure(const CLCompileContext &compile_context, const ICLTensor *input, const ICLTensor *weights, const ICLTensor *bias, ICLTensor *output, const PadStrideInfo &deconv_info);
     /** Static function to check if given info will lead to a valid configuration of @ref CLDeconvolutionLayer
      *
-     * @param[in] input       Input tensor info. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs. Data types supported: F16/F32. Data layout supported: NHWC
+     * @param[in] input       Input tensor info. 3 lower dimensions represent a single input, and an optional 4th dimension for batch of inputs.
+     *                        Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32. Data layout supported: NHWC
      * @param[in] weights     The 4d weights info with dimensions [width, height, IFM, OFM]. Data type supported: Same as @p input. Data layout supported: same as @p input.
      * @param[in] bias        (Optional) The biases have one dimension. Data type supported: Same as @p input. Data layout supported: same as @p input.
      * @param[in] output      Output tensor info. The output has the same number of dimensions as the @p input. Data layout supported: same as @p input.
@@ -114,16 +143,16 @@ public:
     void prepare() override;
 
 private:
-    CLMemoryGroup _memory_group;
+    MemoryGroup _memory_group;
 
     CLGEMM                                              _mm_gemm;
     CLGEMMLowpMatrixMultiplyCore                        _mm_gemmlowp;
-    CLGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint _gemmlowp_output_stage;
+    CLGEMMLowpOutputStage                               _gemmlowp_output_stage;
     CLPermute                                           _permute_input_to_nhwc;
     CLPermute                                           _permute_weights_to_nhwc;
     CLReshapeLayer                                      _reshape_weights;
     CLTranspose                                         _transpose_weights;
-    CLDeconvolutionReshapeOutputKernel                  _deconv_reshape;
+    std::unique_ptr<CLDeconvolutionReshapeOutputKernel> _deconv_reshape;
     CLSlice                                             _slice_gemm;
 
     CLTensor _gemmlowp_final;
@@ -141,4 +170,4 @@ private:
     bool             _is_quantized;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLGEMMDECONVOLUTIONLAYER_H__ */
+#endif /* ARM_COMPUTE_CLGEMMDECONVOLUTIONLAYER_H */

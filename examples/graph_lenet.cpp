@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -43,6 +43,7 @@ public:
     {
         // Parse arguments
         cmd_parser.parse(argc, argv);
+        cmd_parser.validate();
 
         // Consume common parameters
         common_params = consume_common_graph_parameters(common_opts);
@@ -65,8 +66,9 @@ public:
         unsigned int batches   = 4; /** Number of batches */
 
         // Create input descriptor
-        const TensorShape tensor_shape     = permute_shape(TensorShape(28U, 28U, 1U, batches), DataLayout::NCHW, common_params.data_layout);
-        TensorDescriptor  input_descriptor = TensorDescriptor(tensor_shape, common_params.data_type).set_layout(common_params.data_layout);
+        const auto        operation_layout = common_params.data_layout;
+        const TensorShape tensor_shape     = permute_shape(TensorShape(28U, 28U, 1U, batches), DataLayout::NCHW, operation_layout);
+        TensorDescriptor  input_descriptor = TensorDescriptor(tensor_shape, common_params.data_type).set_layout(operation_layout);
 
         // Set weights trained layout
         const DataLayout weights_layout = DataLayout::NCHW;
@@ -81,14 +83,14 @@ public:
                   get_weights_accessor(data_path, "/cnn_data/lenet_model/conv1_b.npy"),
                   PadStrideInfo(1, 1, 0, 0))
               .set_name("conv1")
-              << PoolingLayer(PoolingLayerInfo(PoolingType::MAX, 2, PadStrideInfo(2, 2, 0, 0))).set_name("pool1")
+              << PoolingLayer(PoolingLayerInfo(PoolingType::MAX, 2, operation_layout, PadStrideInfo(2, 2, 0, 0))).set_name("pool1")
               << ConvolutionLayer(
                   5U, 5U, 50U,
                   get_weights_accessor(data_path, "/cnn_data/lenet_model/conv2_w.npy", weights_layout),
                   get_weights_accessor(data_path, "/cnn_data/lenet_model/conv2_b.npy"),
                   PadStrideInfo(1, 1, 0, 0))
               .set_name("conv2")
-              << PoolingLayer(PoolingLayerInfo(PoolingType::MAX, 2, PadStrideInfo(2, 2, 0, 0))).set_name("pool2")
+              << PoolingLayer(PoolingLayerInfo(PoolingType::MAX, 2, operation_layout, PadStrideInfo(2, 2, 0, 0))).set_name("pool2")
               << FullyConnectedLayer(
                   500U,
                   get_weights_accessor(data_path, "/cnn_data/lenet_model/ip1_w.npy", weights_layout),
@@ -109,6 +111,7 @@ public:
         config.use_tuner   = common_params.enable_tuner;
         config.tuner_mode  = common_params.tuner_mode;
         config.tuner_file  = common_params.tuner_file;
+        config.mlgo_file   = common_params.mlgo_file;
 
         graph.finalize(common_params.target, config);
 
@@ -128,6 +131,14 @@ private:
 };
 
 /** Main program for LeNet
+ *
+ * Model is based on:
+ *      http://yann.lecun.com/exdb/publis/pdf/lecun-98.pdf
+ *      "Gradient-Based Learning Applied to Document Recognition"
+ *      Yann LeCun, Léon Bottou, Yoshua Bengio, and Patrick Haffner
+ *
+ * The original model uses tanh instead of relu activations. However the use of relu activations in lenet has been
+ * widely adopted to improve accuracy.*
  *
  * @note To list all the possible arguments execute the binary appended with the --help option
  *

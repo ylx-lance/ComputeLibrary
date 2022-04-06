@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,35 +21,32 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/CL/kernels/CLStackLayerKernel.h"
+#include "src/core/CL/kernels/CLStackLayerKernel.h"
 
 #include "arm_compute/core/CL/CLHelpers.h"
 #include "arm_compute/core/CL/CLKernelLibrary.h"
-#include "arm_compute/core/CL/CLValidate.h"
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/CL/OpenCL.h"
-#include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
-#include "arm_compute/core/IAccessWindow.h"
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Utils.h"
-#include "arm_compute/core/Window.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/CL/CLValidate.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
 
-#include "support/ToolchainSupport.h"
+#include "support/StringSupport.h"
 
-using namespace arm_compute;
 using namespace arm_compute::misc::shape_calculator;
 
+namespace arm_compute
+{
 namespace
 {
 Status validate_arguments(const ITensorInfo *input, unsigned int axis, unsigned int idx_input, unsigned int num_tensors, const ITensorInfo *output)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
     ARM_COMPUTE_RETURN_ERROR_ON_F16_UNSUPPORTED(input);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1, DataType::QASYMM8, DataType::U8, DataType::S8,
-                                                         DataType::U16, DataType::S16, DataType::U32, DataType::S32,
-                                                         DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON(idx_input >= num_tensors);
     ARM_COMPUTE_RETURN_ERROR_ON(axis > input->num_dimensions());
     ARM_COMPUTE_RETURN_ERROR_ON(input->num_dimensions() > 4);
@@ -79,9 +76,15 @@ std::pair<Status, Window> validate_and_configure_window(ITensorInfo *input, unsi
 CLStackLayerKernel::CLStackLayerKernel()
     : _input(nullptr), _output(nullptr)
 {
+    _type = CLKernelType::ELEMENTWISE;
 }
 
 void CLStackLayerKernel::configure(const ICLTensor *input, unsigned int axis, unsigned int idx_input, unsigned int num_tensors, ICLTensor *output)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input, axis, idx_input, num_tensors, output);
+}
+
+void CLStackLayerKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, unsigned int axis, unsigned int idx_input, unsigned int num_tensors, ICLTensor *output)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input->info(), axis, idx_input, num_tensors, output->info()));
@@ -94,13 +97,13 @@ void CLStackLayerKernel::configure(const ICLTensor *input, unsigned int axis, un
 
     // Add build options
     CLBuildOptions build_opts;
-    build_opts.add_option("-DDATA_TYPE=" + get_underlying_cl_type_from_data_type(input->info()->data_type()));
+    build_opts.add_option("-DDATA_TYPE=" + get_cl_type_from_data_type(input->info()->data_type()));
     build_opts.add_option("-DAXIS=" + support::cpp11::to_string(axis));
     build_opts.add_option("-DSRC_DIM2=" + support::cpp11::to_string(input->info()->dimension(2)));
     build_opts.add_option("-DDST_DIM3=" + support::cpp11::to_string(output->info()->dimension(3)));
 
     // Create kernel
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel("stack_layer", build_opts.options()));
+    _kernel = create_kernel(compile_context, "stack_layer", build_opts.options());
 
     ARM_COMPUTE_ERROR_THROW_ON(win_config.first);
     ICLKernel::configure_internal(win_config.second);
@@ -132,5 +135,6 @@ void CLStackLayerKernel::run(const Window &window, cl::CommandQueue &queue)
     unsigned int idx = 0;
     add_4D_tensor_argument(idx, _input, slice_in);
     add_4D_tensor_argument(idx, _output, slice_out);
-    enqueue(queue, *this, slice_in);
+    enqueue(queue, *this, slice_in, lws_hint());
 }
+} // namespace arm_compute

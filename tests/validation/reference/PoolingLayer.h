@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_POOLING_LAYER_H__
-#define __ARM_COMPUTE_TEST_POOLING_LAYER_H__
+#ifndef ARM_COMPUTE_TEST_POOLING_LAYER_H
+#define ARM_COMPUTE_TEST_POOLING_LAYER_H
 
 #include "tests/SimpleTensor.h"
 #include "tests/validation/Helpers.h"
@@ -35,10 +35,15 @@ namespace validation
 {
 namespace reference
 {
+template <typename T, typename ACC_T = T, typename std::enable_if<is_floating_point<T>::value, int>::type = 0>
+SimpleTensor<T> pooling_layer_internal(const SimpleTensor<T> &src, const PoolingLayerInfo &info, SimpleTensor<uint32_t> *indices, DataLayout data_layout = DataLayout::NCHW);
+
 template <typename T>
-SimpleTensor<T> pooling_layer(const SimpleTensor<T> &src, const PoolingLayerInfo &info, const QuantizationInfo &output_qinfo);
+SimpleTensor<T> pooling_layer(const SimpleTensor<T> &src, const PoolingLayerInfo &info, const QuantizationInfo &output_qinfo, SimpleTensor<uint32_t> *indices,
+                              DataLayout data_layout = DataLayout::NCHW);
+
 } // namespace reference
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_POOLING_LAYER_H__ */
+#endif /* ARM_COMPUTE_TEST_POOLING_LAYER_H */

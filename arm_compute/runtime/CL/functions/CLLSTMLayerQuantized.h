@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLLSTMLAYERQUANTIZED_H__
-#define __ARM_COMPUTE_CLLSTMLAYERQUANTIZED_H__
+#ifndef ARM_COMPUTE_CLLSTMLAYERQUANTIZED_H
+#define ARM_COMPUTE_CLLSTMLAYERQUANTIZED_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/CL/functions/CLActivationLayer.h"
@@ -47,16 +47,16 @@ class ICLTensor;
  *
  * This function calls the following CL functions/kernels:
  *
- * -# @ref CLGEMMLowpMatrixMultiplyCore                          Quantized matrix multiplication core. Accumulators are 32-bit integers
- * -# @ref CLGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPoint   Convert 32-bit integers into QSYMM16
- * -# @ref CLTranspose                                           Matrix transpose
- * -# @ref CLConcatenateLayer                                    Tensor concatenation
- * -# @ref CLActivationLayer                                     Activation functions (tanh and logistic)
- * -# @ref CLArithmeticAddition                                  Elementwise addition
- * -# @ref CLPixelWiseMultiplication                             Elementwise multiplication
- * -# @ref CLSlice                                               Tensor slicing
- * -# @ref CLDequantizationLayer                                 Dequantize into float
- * -# @ref CLQuantizationLayer                                   Quantize from float
+ * -# @ref CLGEMMLowpMatrixMultiplyCore      Quantized matrix multiplication core. Accumulators are 32-bit integers
+ * -# @ref CLGEMMLowpOutputStage             Convert 32-bit integers into QSYMM16
+ * -# @ref CLTranspose                       Matrix transpose
+ * -# @ref CLConcatenateLayer                Tensor concatenation
+ * -# @ref CLActivationLayer                 Activation functions (tanh and logistic)
+ * -# @ref CLArithmeticAddition              Elementwise addition
+ * -# @ref CLPixelWiseMultiplication         Elementwise multiplication
+ * -# @ref CLSlice                           Tensor slicing
+ * -# @ref CLDequantizationLayer             Dequantize into float
+ * -# @ref CLQuantizationLayer               Quantize from float
  * */
 class CLLSTMLayerQuantized : public IFunction
 {
@@ -72,6 +72,14 @@ public:
     /** Default move assignment operator */
     CLLSTMLayerQuantized &operator=(CLLSTMLayerQuantized &&) = default;
     /** Initialize function's tensors.
+     *
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src0 - src8 |src9 - src12 |src13   |src14  |dst0   |dst1   |
+     * |:-----------|:------------|:-------|:------|:------|:------|
+     * |QASYMM8     |S32          |QSYMM16 |QASYMM8|QSYMM16|QASYMM8|
      *
      * @param[in]  input                       Source tensor. Input is a 2D tensor with dimensions [input_size, batch_size]. Data types supported: QASYMM8.
      * @param[in]  input_to_input_weights      2D weights tensor with dimensions [input_size, output_size]. Data type supported: Same as @p input.
@@ -92,6 +100,33 @@ public:
      * @param[out] output_state_out            Destination tensor. Output is a 2D tensor with dimensions [output_size, batch_size].Data types supported: Same as @p input.
      */
     void configure(const ICLTensor *input,
+                   const ICLTensor *input_to_input_weights, const ICLTensor *input_to_forget_weights, const ICLTensor *input_to_cell_weights, const ICLTensor *input_to_output_weights,
+                   const ICLTensor *recurrent_to_input_weights, const ICLTensor *recurrent_to_forget_weights, const ICLTensor *recurrent_to_cell_weights, const ICLTensor *recurrent_to_output_weights,
+                   const ICLTensor *input_gate_bias, const ICLTensor *forget_gate_bias, const ICLTensor *cell_bias, const ICLTensor *output_gate_bias,
+                   ICLTensor *cell_state_in, const ICLTensor *output_state_in,
+                   ICLTensor *cell_state_out, ICLTensor *output_state_out);
+    /** Initialize function's tensors.
+     *
+     * @param[in]  compile_context             The compile context to be used.
+     * @param[in]  input                       Source tensor. Input is a 2D tensor with dimensions [input_size, batch_size]. Data types supported: QASYMM8.
+     * @param[in]  input_to_input_weights      2D weights tensor with dimensions [input_size, output_size]. Data type supported: Same as @p input.
+     * @param[in]  input_to_forget_weights     2D weights tensor with dimensions [input_size, output_size]. Data type supported: Same as @p input.
+     * @param[in]  input_to_cell_weights       2D weights tensor with dimensions [input_size, output_size]. Data type supported: Same as @p input.
+     * @param[in]  input_to_output_weights     2D weights tensor with dimensions [input_size, output_size]. Data type supported: Same as @p input.
+     * @param[in]  recurrent_to_input_weights  2D weights tensor with dimensions [output_size, output_size]. Data type supported: Same as @p input.
+     * @param[in]  recurrent_to_forget_weights 2D weights tensor with dimensions [output_size, output_size]. Data type supported: Same as @p input.
+     * @param[in]  recurrent_to_cell_weights   2D weights tensor with dimensions [output_size, output_size]. Data type supported: Same as @p input.
+     * @param[in]  recurrent_to_output_weights 2D weights tensor with dimensions [output_size, output_size]. Data type supported: Same as @p input.
+     * @param[in]  input_gate_bias             1D weights tensor with dimensions [output_size]. Data type supported: S32.
+     * @param[in]  forget_gate_bias            1D weights tensor with dimensions [output_size]. Data type supported: S32.
+     * @param[in]  cell_bias                   1D weights tensor with dimensions [output_size]. Data type supported: S32.
+     * @param[in]  output_gate_bias            1D weights tensor with dimensions [output_size]. Data type supported: S32.
+     * @param[in]  cell_state_in               2D tensor with dimensions [output_size, batch_size]. Data type supported:  QSYMM16.
+     * @param[in]  output_state_in             2D tensor with dimensions [output_size, batch_size]. Data type supported: Same as @p input.
+     * @param[out] cell_state_out              Destination tensor. Output is a 2D tensor with dimensions [output_size, batch_size]. Data type supported:  QSYMM16.
+     * @param[out] output_state_out            Destination tensor. Output is a 2D tensor with dimensions [output_size, batch_size].Data types supported: Same as @p input.
+     */
+    void configure(const CLCompileContext &compile_context, const ICLTensor *input,
                    const ICLTensor *input_to_input_weights, const ICLTensor *input_to_forget_weights, const ICLTensor *input_to_cell_weights, const ICLTensor *input_to_output_weights,
                    const ICLTensor *recurrent_to_input_weights, const ICLTensor *recurrent_to_forget_weights, const ICLTensor *recurrent_to_cell_weights, const ICLTensor *recurrent_to_output_weights,
                    const ICLTensor *input_gate_bias, const ICLTensor *forget_gate_bias, const ICLTensor *cell_bias, const ICLTensor *output_gate_bias,
@@ -132,33 +167,33 @@ public:
     void prepare() override;
 
 private:
-    CLMemoryGroup _memory_group;
+    MemoryGroup _memory_group;
 
     // Functions used
-    CLGEMMLowpMatrixMultiplyCore                        _gemmlowp;
-    CLGEMMLowpQuantizeDownInt32ToInt16ScaleByFixedPoint _output_stage;
-    CLTranspose                                         _transpose_weights;
-    CLConcatenateLayer                                  _concat_input_weights;
-    CLConcatenateLayer                                  _concat_recurrent_weights;
-    CLConcatenateLayer                                  _concat_weights;
-    CLConcatenateLayer                                  _concat_inputs;
-    CLConcatenateLayer                                  _concat_bias;
-    CLActivationLayer                                   _sigmoid_forget_gate;
-    CLActivationLayer                                   _sigmoid_input_gate;
-    CLActivationLayer                                   _sigmoid_output_gate;
-    CLActivationLayer                                   _tanh_modulation_gate;
-    CLActivationLayer                                   _tanh_output_state;
-    CLArithmeticAddition                                _add_cell_state_tmps;
-    CLArithmeticAddition                                _add2;
-    CLPixelWiseMultiplication                           _mul_forget_gate_cell_state;
-    CLPixelWiseMultiplication                           _mul_input_gate_input_mod_gate;
-    CLPixelWiseMultiplication                           _mul_output_state_tmp_output_gate;
-    CLSlice                                             _slice_input_tensor;
-    CLSlice                                             _slice_forget_tensor;
-    CLSlice                                             _slice_cell_tensor;
-    CLSlice                                             _slice_output_tensor;
-    CLDequantizationLayer                               _dequantize;
-    CLQuantizationLayer                                 _quantize;
+    CLGEMMLowpMatrixMultiplyCore _gemmlowp;
+    CLGEMMLowpOutputStage        _output_stage;
+    CLTranspose                  _transpose_weights;
+    CLConcatenateLayer           _concat_input_weights;
+    CLConcatenateLayer           _concat_recurrent_weights;
+    CLConcatenateLayer           _concat_weights;
+    CLConcatenateLayer           _concat_inputs;
+    CLConcatenateLayer           _concat_bias;
+    CLActivationLayer            _sigmoid_forget_gate;
+    CLActivationLayer            _sigmoid_input_gate;
+    CLActivationLayer            _sigmoid_output_gate;
+    CLActivationLayer            _tanh_modulation_gate;
+    CLActivationLayer            _tanh_output_state;
+    CLArithmeticAddition         _add_cell_state_tmps;
+    CLArithmeticAddition         _add2;
+    CLPixelWiseMultiplication    _mul_forget_gate_cell_state;
+    CLPixelWiseMultiplication    _mul_input_gate_input_mod_gate;
+    CLPixelWiseMultiplication    _mul_output_state_tmp_output_gate;
+    CLSlice                      _slice_input_tensor;
+    CLSlice                      _slice_forget_tensor;
+    CLSlice                      _slice_cell_tensor;
+    CLSlice                      _slice_output_tensor;
+    CLDequantizationLayer        _dequantize;
+    CLQuantizationLayer          _quantize;
 
     // Tensor pointers
     const ICLTensor *_input_to_input_weights;
@@ -200,4 +235,4 @@ private:
     bool _is_prepared;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLLSTMLAYERQUANTIZED_H__ */
+#endif /* ARM_COMPUTE_CLLSTMLAYERQUANTIZED_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2019 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,54 +24,85 @@
 #include "arm_compute/runtime/NEON/functions/NEPixelWiseMultiplication.h"
 
 #include "arm_compute/core/ITensor.h"
-#include "arm_compute/core/NEON/kernels/NEPixelWiseMultiplicationKernel.h"
-#include "support/ToolchainSupport.h"
+#include "src/cpu/operators/CpuMul.h"
 
 #include <utility>
 
 namespace arm_compute
 {
-void NEPixelWiseMultiplication::configure(ITensor *input1, ITensor *input2, ITensor *output, float scale, ConvertPolicy overflow_policy, RoundingPolicy rounding_policy)
+struct NEPixelWiseMultiplication::Impl
 {
-    auto k = arm_compute::support::cpp14::make_unique<NEPixelWiseMultiplicationKernel>();
-    k->configure(input1, input2, output, scale, overflow_policy, rounding_policy);
-    _kernel = std::move(k);
+    const ITensor               *src_0{ nullptr };
+    const ITensor               *src_1{ nullptr };
+    ITensor                     *dst{ nullptr };
+    std::unique_ptr<cpu::CpuMul> op{ nullptr };
+};
 
-    if(output->info()->dimension(0) > 1)
-    {
-        ITensor *broadcasted_info = (input1->info()->dimension(0) == 1) ? input1 : input2;
-
-        if(broadcasted_info->info()->dimension(0) == 1)
-        {
-            _border_handler.configure(broadcasted_info, _kernel->border_size(), BorderMode::REPLICATE);
-        }
-    }
+NEPixelWiseMultiplication::NEPixelWiseMultiplication()
+    : _impl(std::make_unique<Impl>())
+{
 }
-Status NEPixelWiseMultiplication::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, float scale, ConvertPolicy overflow_policy, RoundingPolicy rounding_policy)
+NEPixelWiseMultiplication::~NEPixelWiseMultiplication() = default;
+
+Status NEPixelWiseMultiplication::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, float scale, ConvertPolicy overflow_policy, RoundingPolicy rounding_policy,
+                                           const ActivationLayerInfo &act_info)
 {
-    return NEPixelWiseMultiplicationKernel::validate(input1, input2, output, scale, overflow_policy, rounding_policy);
-}
-
-void NEComplexPixelWiseMultiplication::configure(ITensor *input1, ITensor *input2, ITensor *output)
-{
-    auto k = arm_compute::support::cpp14::make_unique<NEComplexPixelWiseMultiplicationKernel>();
-    k->configure(input1, input2, output);
-    _kernel = std::move(k);
-
-    if(output->info()->dimension(0) > 1)
-    {
-        ITensor *broadcasted_info = (input1->info()->dimension(0) == 1) ? input1 : input2;
-
-        if(broadcasted_info->info()->dimension(0) == 1)
-        {
-            _border_handler.configure(broadcasted_info, _kernel->border_size(), BorderMode::REPLICATE);
-        }
-    }
+    return cpu::CpuMul::validate(input1, input2, output, scale, overflow_policy, rounding_policy, act_info);
 }
 
-Status NEComplexPixelWiseMultiplication::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output)
+void NEPixelWiseMultiplication::configure(const ITensor *input1, const ITensor *input2, ITensor *output, float scale, ConvertPolicy overflow_policy, RoundingPolicy rounding_policy,
+                                          const ActivationLayerInfo &act_info)
 {
-    return NEComplexPixelWiseMultiplicationKernel::validate(input1, input2, output);
+    _impl->src_0 = input1;
+    _impl->src_1 = input2;
+    _impl->dst   = output;
+    _impl->op    = std::make_unique<cpu::CpuMul>();
+    _impl->op->configure(input1->info(), input2->info(), output->info(), scale, overflow_policy, rounding_policy, act_info);
 }
 
+void NEPixelWiseMultiplication::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC_0, _impl->src_0);
+    pack.add_tensor(TensorType::ACL_SRC_1, _impl->src_1);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+    _impl->op->run(pack);
+}
+
+struct NEComplexPixelWiseMultiplication::Impl
+{
+    ITensor                            *src_0{ nullptr };
+    ITensor                            *src_1{ nullptr };
+    ITensor                            *dst{ nullptr };
+    std::unique_ptr<cpu::CpuComplexMul> op{ nullptr };
+};
+
+NEComplexPixelWiseMultiplication::NEComplexPixelWiseMultiplication()
+    : _impl(std::make_unique<Impl>())
+{
+}
+NEComplexPixelWiseMultiplication::~NEComplexPixelWiseMultiplication() = default;
+
+Status NEComplexPixelWiseMultiplication::validate(const ITensorInfo *input1, const ITensorInfo *input2, const ITensorInfo *output, const ActivationLayerInfo &act_info)
+{
+    return cpu::CpuComplexMul::validate(input1, input2, output, act_info);
+}
+
+void NEComplexPixelWiseMultiplication::configure(ITensor *input1, ITensor *input2, ITensor *output, const ActivationLayerInfo &act_info)
+{
+    _impl->src_0 = input1;
+    _impl->src_1 = input2;
+    _impl->dst   = output;
+    _impl->op    = std::make_unique<cpu::CpuComplexMul>();
+    _impl->op->configure(input1->info(), input2->info(), output->info(), act_info);
+}
+
+void NEComplexPixelWiseMultiplication::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC_0, _impl->src_0);
+    pack.add_tensor(TensorType::ACL_SRC_1, _impl->src_1);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+    _impl->op->run(pack);
+}
 } // namespace arm_compute

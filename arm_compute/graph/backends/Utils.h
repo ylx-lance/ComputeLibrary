@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,11 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_BACKENDS_UTILS_H__
-#define __ARM_COMPUTE_GRAPH_BACKENDS_UTILS_H__
+#ifndef ARM_COMPUTE_GRAPH_BACKENDS_UTILS_H
+#define ARM_COMPUTE_GRAPH_BACKENDS_UTILS_H
 
 #include "arm_compute/graph/GraphContext.h"
 #include "arm_compute/runtime/IMemoryManager.h"
+#include "arm_compute/runtime/IWeightsManager.h"
 
 namespace arm_compute
 {
@@ -41,9 +42,9 @@ namespace backends
  * @return  A configured backend function
  */
 template <typename FunctionType, typename FunctionNameType, typename... ParameterType>
-std::pair<std::unique_ptr<arm_compute::IFunction>, FunctionNameType> create_named_function(FunctionNameType name, ParameterType... args)
+std::tuple<std::unique_ptr<arm_compute::IFunction>, FunctionNameType> create_named_function(FunctionNameType name, ParameterType... args)
 {
-    auto f = arm_compute::support::cpp14::make_unique<FunctionType>();
+    auto f = std::make_unique<FunctionType>();
     f->configure(std::forward<ParameterType>(args)...);
     return std::make_pair(std::move(f), name);
 }
@@ -57,11 +58,11 @@ std::pair<std::unique_ptr<arm_compute::IFunction>, FunctionNameType> create_name
  * @return  A configured backend function
  */
 template <typename FunctionType, typename FunctionNameType, typename MemoryManagerType, typename... ParameterType>
-std::pair<std::unique_ptr<arm_compute::IFunction>, FunctionNameType> create_named_memory_managed_function(FunctionNameType name,
-                                                                                                          MemoryManagerType mm,
-                                                                                                          ParameterType... args)
+std::tuple<std::unique_ptr<arm_compute::IFunction>, FunctionNameType> create_named_memory_managed_function(FunctionNameType name,
+                                                                                                           MemoryManagerType mm,
+                                                                                                           ParameterType... args)
 {
-    auto f = arm_compute::support::cpp14::make_unique<FunctionType>(mm);
+    auto f = std::make_unique<FunctionType>(mm);
     f->configure(std::forward<ParameterType>(args)...);
     return std::make_pair(std::move(f), name);
 }
@@ -90,8 +91,21 @@ inline std::shared_ptr<IMemoryManager> get_memory_manager(GraphContext &ctx, Tar
     bool enabled = ctx.config().use_function_memory_manager && (ctx.memory_management_ctx(target) != nullptr);
     return enabled ? ctx.memory_management_ctx(target)->intra_mm : nullptr;
 }
+
+/** Returns the weights manager for a given target
+ *
+ * @param[in] ctx    Graph context containing weight management metadata
+ * @param[in] target Target to retrieve the weights manager from
+ *
+ * @return The weights manager for the given target else false
+ */
+inline std::shared_ptr<IWeightsManager> get_weights_manager(GraphContext &ctx, Target target)
+{
+    bool enabled = ctx.config().use_function_weights_manager && (ctx.weights_management_ctx(target) != nullptr);
+    return enabled ? ctx.weights_management_ctx(target)->wm : nullptr;
+}
 } // namespace backends
 } // namespace graph
 } // namespace arm_compute
 
-#endif /* __ARM_COMPUTE_GRAPH_BACKENDS_UTILS_H__ */
+#endif /* ARM_COMPUTE_GRAPH_BACKENDS_UTILS_H */

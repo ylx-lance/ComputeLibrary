@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 ARM Limited.
+ * Copyright (c) 2017-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_LOG_H__
-#define __ARM_COMPUTE_LOG_H__
+#ifndef ARM_COMPUTE_LOG_H
+#define ARM_COMPUTE_LOG_H
 
 #include "arm_compute/core/utils/logging/Macros.h"
 
@@ -96,11 +96,11 @@
  * @param[in] fmt String format (printf style)
  * @param[in] ... Message arguments
  */
-#define ARM_COMPUTE_LOG_INFO_MSG_WITH_FORMAT_CORE(fmt, ...)                                           \
-    do                                                                                                \
-    {                                                                                                 \
-        ARM_COMPUTE_CREATE_DEFAULT_CORE_LOGGER();                                                     \
-        ARM_COMPUTE_LOG_MSG_WITH_FORMAT_CORE(arm_compute::logging::LogLevel::INFO, fmt, __VA_ARGS__); \
+#define ARM_COMPUTE_LOG_INFO_MSG_WITH_FORMAT_CORE(fmt, ...)                                            \
+    do                                                                                                 \
+    {                                                                                                  \
+        ARM_COMPUTE_CREATE_DEFAULT_CORE_LOGGER();                                                      \
+        ARM_COMPUTE_LOG_MSG_WITH_FORMAT_CORE(arm_compute::logging::LogLevel::INFO, #fmt, __VA_ARGS__); \
     } while(false)
 
 /** Log information level stream to the core system logger
@@ -114,4 +114,4 @@
         ARM_COMPUTE_LOG_STREAM_CORE(arm_compute::logging::LogLevel::INFO, ss); \
     } while(false)
 
-#endif /* __ARM_COMPUTE_LOGGING_MACROS_H__ */
+#endif /* ARM_COMPUTE_LOGGING_MACROS_H */

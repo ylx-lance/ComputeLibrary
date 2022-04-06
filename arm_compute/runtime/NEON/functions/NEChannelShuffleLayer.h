@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,15 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NECHANNELSHUFFLELAYER_H__
-#define __ARM_COMPUTE_NECHANNELSHUFFLELAYER_H__
+#ifndef ARM_COMPUTE_NECHANNELSHUFFLELAYER_H
+#define ARM_COMPUTE_NECHANNELSHUFFLELAYER_H
 
+#include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/NEON/INESimpleFunctionNoBorder.h"
 
 namespace arm_compute
 {
 // Forward declarations
 class ITensor;
+class ITensorInfo;
 
 /** Basic function to run @ref NEChannelShuffleLayerKernel
  *
@@ -42,14 +44,23 @@ class NEChannelShuffleLayer : public INESimpleFunctionNoBorder
 public:
     /** Initialize the function
      *
-     * @param[in]  input      Input tensor. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32
+     * Valid data layouts:
+     * - NCHW
+     * - NHWC
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |All            |All            |
+     *
+     * @param[in]  input      Input tensor. Data types supported: All
      * @param[out] output     Output tensor. Data type supported: Same as @p input
      * @param[in]  num_groups Number of groups. Must be greater than 1 and the number of channels of the tensors must be a multiple of the number of groups.
      */
     void configure(const ITensor *input, ITensor *output, unsigned int num_groups);
     /** Static function to check if given info will lead to a valid configuration of @ref NEChannelShuffleLayer
      *
-     * @param[in]  input      Input tensor. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32
+     * @param[in]  input      Input tensor. Data types supported: All
      * @param[out] output     Output tensor. Data type supported: Same as @p input
      * @param[in]  num_groups Number of groups. Must be greater than 1 and the number of channels of the tensors must be a multiple of the number of groups.
      *
@@ -58,4 +69,4 @@ public:
     static Status validate(const ITensorInfo *input, const ITensorInfo *output, unsigned int num_groups);
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_NECHANNELSHUFFLELAYER_H__ */
+#endif /* ARM_COMPUTE_NECHANNELSHUFFLELAYER_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016, 2017 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_IKERNEL_H__
-#define __ARM_COMPUTE_IKERNEL_H__
+#ifndef ARM_COMPUTE_IKERNEL_H
+#define ARM_COMPUTE_IKERNEL_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Window.h"
@@ -57,6 +57,11 @@ public:
      * @return The maximum window the kernel can be executed on.
      */
     const Window &window() const;
+    /** Function to check if the embedded window of this kernel has been configured
+     *
+     * @return True if the windows has been configured
+     */
+    bool is_window_configured() const;
 
 protected:
     /** Configure the kernel's window
@@ -69,4 +74,4 @@ private:
     Window _window;
 };
 }
-#endif /*__ARM_COMPUTE_IKERNEL_H__ */
+#endif /*ARM_COMPUTE_IKERNEL_H */

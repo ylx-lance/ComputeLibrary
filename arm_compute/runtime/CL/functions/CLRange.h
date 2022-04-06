@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,15 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLRANGE_H__
-#define __ARM_COMPUTE_CLRANGE_H__
+#ifndef ARM_COMPUTE_CLRANGE_H
+#define ARM_COMPUTE_CLRANGE_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/CL/ICLSimpleFunction.h"
 
 namespace arm_compute
 {
+class CLCompileContext;
 class ICLTensor;
+class ITensorInfo;
 
 /** Basic function to run @ref CLRangeKernel
  *
@@ -41,12 +43,37 @@ class CLRange : public ICLSimpleFunction
 public:
     /** Initialize the kernel's start, end, step and output tensor.
      *
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |dst       |
+     * |:---------|
+     * |U8        |
+     * |S8        |
+     * |QASYMM8   |
+     * |U16       |
+     * |S16       |
+     * |U32       |
+     * |S32       |
+     * |F16       |
+     * |F32       |
+     *
      * @param[out] output Output tensor. Data types supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32.
      * @param[in]  start  The starting value of the sequence.
      * @param[in]  end    The ending (not including) value of the sequence.
      * @param[in]  step   The gap between each pair of values in the sequence. Default is 1.
      */
     void configure(ICLTensor *output, float start, float end, float step = 1.f);
+    /** Initialize the kernel's start, end, step and output tensor.
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[out] output          Output tensor. Data types supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32.
+     * @param[in]  start           The starting value of the sequence.
+     * @param[in]  end             The ending (not including) value of the sequence.
+     * @param[in]  step            The gap between each pair of values in the sequence. Default is 1.
+     */
+    void configure(const CLCompileContext &compile_context, ICLTensor *output, float start, float end, float step = 1.f);
     /** Static function to check if given info will lead to a valid configuration of @ref CLRange
      *
      * @param[in] output Output tensor info. Data types supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32.
@@ -59,4 +86,4 @@ public:
     static Status validate(const ITensorInfo *output, float start, float end, float step = 1.f);
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLRANGE_H__ */
+#endif /* ARM_COMPUTE_CLRANGE_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,19 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/CL/kernels/CLTileKernel.h"
-
-#include "arm_compute/core/CL/CLHelpers.h"
-#include "arm_compute/core/CL/CLKernelLibrary.h"
-#include "arm_compute/core/CL/CLValidate.h"
+#include "src/core/CL/kernels/CLTileKernel.h"
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/Helpers.h"
-#include "arm_compute/core/IAccessWindow.h"
-#include "arm_compute/core/TensorInfo.h"
-#include "arm_compute/core/Utils.h"
-#include "arm_compute/core/Validate.h"
-#include "arm_compute/core/Window.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+#include "support/StringSupport.h"
 
 namespace arm_compute
 {
@@ -42,6 +35,7 @@ namespace
 Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, const Multiples &multiples)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON(multiples.size() > 4);
     ARM_COMPUTE_RETURN_ERROR_ON(multiples.empty());
     ARM_COMPUTE_RETURN_ERROR_ON(std::any_of(multiples.begin(), multiples.end(), [](uint32_t e)
@@ -63,9 +57,15 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, c
 CLTileKernel::CLTileKernel()
     : _input(nullptr), _output(nullptr)
 {
+    _type = CLKernelType::ELEMENTWISE;
 }
 
 void CLTileKernel::configure(const ICLTensor *input, ICLTensor *output, const Multiples &multiples)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, multiples);
+}
+
+void CLTileKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output, const Multiples &multiples)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
 
@@ -87,7 +87,7 @@ void CLTileKernel::configure(const ICLTensor *input, ICLTensor *output, const Mu
 
     // Create kernel
     CLBuildOptions build_opts;
-    build_opts.add_option("-DDATA_TYPE=" + get_cl_type_from_data_type(data_type));
+    build_opts.add_option("-DDATA_TYPE=" + get_cl_unsigned_type_from_element_size(data_size_from_type(data_type)));
     build_opts.add_option("-DSRC_WIDTH=" + support::cpp11::to_string(input_width_x));
     build_opts.add_option("-DSRC_HEIGHT=" + support::cpp11::to_string(input->info()->dimension(1)));
     build_opts.add_option("-DSRC_DEPTH=" + support::cpp11::to_string(input->info()->dimension(2)));
@@ -95,7 +95,7 @@ void CLTileKernel::configure(const ICLTensor *input, ICLTensor *output, const Mu
     build_opts.add_option("-DDST_DEPTH=" + support::cpp11::to_string(output->info()->dimension(2)));
     build_opts.add_option_if(multi_access_x, "-DOFFSET=" + support::cpp11::to_string(offset));
     build_opts.add_option_if(multi_access_x, "-DVEC_SIZE=" + support::cpp11::to_string(vec_size_x));
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel("tile", build_opts.options()));
+    _kernel = create_kernel(compile_context, "tile", build_opts.options());
 
     // Configure window without padding
     Window win = calculate_max_window(*output->info());
@@ -145,7 +145,7 @@ void CLTileKernel::run(const Window &window, cl::CommandQueue &queue)
         unsigned int idx = 0;
         add_4D_tensor_argument(idx, _input, slice);
         add_4D_tensor_argument(idx, _output, slice);
-        enqueue(queue, *this, slice);
+        enqueue(queue, *this, slice, lws_hint());
     }
     while(collapsed.slide_window_slice_4D(slice));
 }

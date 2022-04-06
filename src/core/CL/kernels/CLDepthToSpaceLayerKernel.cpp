@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/CL/kernels/CLDepthToSpaceLayerKernel.h"
+#include "src/core/CL/kernels/CLDepthToSpaceLayerKernel.h"
 
 #include "arm_compute/core/CL/CLHelpers.h"
-#include "arm_compute/core/CL/CLValidate.h"
 #include "arm_compute/core/CL/ICLTensor.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/CL/CLValidate.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+#include "support/StringSupport.h"
 
 using namespace arm_compute::misc::shape_calculator;
 namespace arm_compute
@@ -36,6 +39,7 @@ namespace
 Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, int32_t block_shape)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON(input->num_dimensions() > 4);
     ARM_COMPUTE_RETURN_ERROR_ON(block_shape < 2);
 
@@ -61,14 +65,22 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, i
 CLDepthToSpaceLayerKernel::CLDepthToSpaceLayerKernel()
     : _input(nullptr), _output(nullptr), _block_shape()
 {
+    _type = CLKernelType::ELEMENTWISE;
 }
 
 void CLDepthToSpaceLayerKernel::configure(const ICLTensor *input, ICLTensor *output, int32_t block_shape)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), input, output, block_shape);
+}
+
+void CLDepthToSpaceLayerKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output, int32_t block_shape)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
 
-    TensorShape output_shape = compute_depth_to_space_shape(input->info(), block_shape);
+    TensorShape output_shape = compute_depth_to_space_shape(input->info()->tensor_shape(), input->info()->data_layout(), block_shape);
     auto_init_if_empty(*output->info(), output_shape, 1, input->info()->data_type());
+
+    auto padding_info = get_padding_info({ input, output });
 
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input->info(), output->info(), block_shape));
 
@@ -81,15 +93,17 @@ void CLDepthToSpaceLayerKernel::configure(const ICLTensor *input, ICLTensor *out
 
     // Create kernel
     CLBuildOptions build_opts;
-    build_opts.add_option("-DDATA_TYPE=" + get_cl_type_from_data_type(input->info()->data_type()));
+    build_opts.add_option("-DDATA_TYPE=" + get_cl_unsigned_type_from_element_size(input->info()->element_size()));
     build_opts.add_option("-DCHANNEL_SIZE=" + support::cpp11::to_string(input->info()->dimension(idx_channel)));
     build_opts.add_option("-DBLOCK_SHAPE=" + support::cpp11::to_string(block_shape));
     build_opts.add_option("-DWIDTH_IN=" + support::cpp11::to_string(input->info()->dimension(idx_width)));
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel("depth_to_space_" + lower_string(string_from_data_layout(input->info()->data_layout())), build_opts.options()));
+    _kernel = create_kernel(compile_context, "depth_to_space_" + lower_string(string_from_data_layout(input->info()->data_layout())), build_opts.options());
 
     // Configure kernel window
     Window win = calculate_max_window(*input->info(), Steps());
     ICLKernel::configure_internal(win);
+
+    ARM_COMPUTE_ERROR_ON(has_padding_changed(padding_info));
 }
 
 Status CLDepthToSpaceLayerKernel::validate(const ITensorInfo *input, const ITensorInfo *output, int32_t block_shape)
@@ -119,7 +133,7 @@ void CLDepthToSpaceLayerKernel::run(const Window &window, cl::CommandQueue &queu
         add_3D_tensor_argument(idx, _input, slice_in);
         add_argument(idx, batch_id);
         add_4D_tensor_argument(idx, _output, slice_out);
-        enqueue(queue, *this, slice_in);
+        enqueue(queue, *this, slice_in, lws_hint());
 
         ++batch_id;
     }

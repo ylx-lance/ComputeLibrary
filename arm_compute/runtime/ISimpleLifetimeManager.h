@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_ISIMPLELIFETIMEMANAGER_H__
-#define __ARM_COMPUTE_ISIMPLELIFETIMEMANAGER_H__
+#ifndef ARM_COMPUTE_ISIMPLELIFETIMEMANAGER_H
+#define ARM_COMPUTE_ISIMPLELIFETIMEMANAGER_H
 
 #include "arm_compute/runtime/ILifetimeManager.h"
 
@@ -57,6 +57,7 @@ public:
 
     // Inherited methods overridden:
     void register_group(IMemoryGroup *group) override;
+    bool release_group(IMemoryGroup *group) override;
     void start_lifetime(void *obj) override;
     void end_lifetime(void *obj, IMemory &obj_memory, size_t size, size_t alignment) override;
     bool are_all_finalized() const override;
@@ -96,4 +97,4 @@ protected:
     std::map<IMemoryGroup *, std::map<void *, Element>> _finalized_groups; /**< A map that contains the finalized groups */
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_ISIMPLELIFETIMEMANAGER_H__ */
+#endif /* ARM_COMPUTE_ISIMPLELIFETIMEMANAGER_H */

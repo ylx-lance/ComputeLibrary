@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,19 +24,26 @@
 #include "arm_compute/runtime/CL/functions/CLRange.h"
 
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/CL/kernels/CLRangeKernel.h"
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/runtime/CL/CLScheduler.h"
-#include "support/ToolchainSupport.h"
+#include "src/core/CL/kernels/CLRangeKernel.h"
+
+#include "src/common/utils/Log.h"
 
 using namespace arm_compute;
 
 void CLRange::configure(ICLTensor *output, const float start, const float end, const float step)
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLRangeKernel>();
+    configure(CLKernelLibrary::get().get_compile_context(), output, start, end, step);
+}
+
+void CLRange::configure(const CLCompileContext &compile_context, ICLTensor *output, const float start, const float end, const float step)
+{
+    ARM_COMPUTE_LOG_PARAMS(output, start, end, step);
+    auto k = std::make_unique<CLRangeKernel>();
     k->set_target(CLScheduler::get().target());
-    k->configure(output, start, end, step);
+    k->configure(compile_context, output, start, end, step);
     _kernel = std::move(k);
 
     // Tune kernels

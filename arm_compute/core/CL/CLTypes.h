@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,13 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CL_TYPES_H__
-#define __ARM_COMPUTE_CL_TYPES_H__
+#ifndef ARM_COMPUTE_CL_TYPES_H
+#define ARM_COMPUTE_CL_TYPES_H
 
 #include "arm_compute/core/CL/ICLArray.h"
 #include "arm_compute/core/GPUTarget.h"
 
+#include <set>
 #include <string>
 
 namespace arm_compute
@@ -47,12 +48,14 @@ enum class CLVersion
 /** OpenCL device options */
 struct CLDeviceOptions
 {
-    std::string name;        /**< Device name */
-    std::string extensions;  /**< List of supported extensions */
-    std::string ddk_version; /**< DDK version */
-    GPUTarget   gpu_target;  /**< GPU target architecture/instance */
-    size_t      num_cores;   /**< Number of cores */
-    size_t      cache_size;  /**< Cache size */
+    std::string           name{};           /**< Device name */
+    std::string           device_version{}; /**< Device version string */
+    std::set<std::string> extensions{};     /**< List of supported extensions */
+    std::string           ddk_version{};    /**< DDK version */
+    GPUTarget             gpu_target{};     /**< GPU target architecture/instance */
+    CLVersion             version{};        /**< Device OpenCL version */
+    size_t                compute_units{};  /**< Number of compute units */
+    size_t                cache_size{};     /**< Cache size */
 };
 
 /** OpenCL quantization data */
@@ -72,5 +75,16 @@ struct CLQuantization
     const ICLFloatArray *scale;  /**< Quantization scale array */
     const ICLInt32Array *offset; /**< Quantization offset array */
 };
+
+enum CLKernelType
+{
+    UNKNOWN,     /**< Unknown CL kernel type */
+    DEPTHWISE,   /**< Depthwise CL kernel type */
+    DIRECT,      /**< Direct Convolution CL kernel type */
+    ELEMENTWISE, /**< Elementeise CL kernel type */
+    GEMM,        /**< GEMM CL kernel type */
+    POOL,        /**< Pool CL kernel type */
+    WINOGRAD     /**< Winograd CL kernel type */
+};
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CL_TYPES_H__ */
+#endif /* ARM_COMPUTE_CL_TYPES_H */

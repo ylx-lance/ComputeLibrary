@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -29,7 +29,6 @@
 #include "Profiler.h"
 #include "TestCase.h"
 #include "TestCaseFactory.h"
-#include "TestFilter.h"
 #include "TestResult.h"
 #include "Utils.h"
 #include "instruments/Instruments.h"
@@ -41,11 +40,9 @@
 #include <memory>
 #include <numeric>
 #include <ostream>
-#include <regex>
 #include <set>
 #include <sstream>
 #include <string>
-#include <tuple>
 #include <vector>
 
 namespace arm_compute
@@ -54,6 +51,21 @@ namespace test
 {
 namespace framework
 {
+class TestFilter;
+
+/** Framework configuration structure */
+struct FrameworkConfig
+{
+    std::vector<framework::InstrumentsDescription> instruments{};               /**< Instrument types that will be used for benchmarking. */
+    std::string                                    name_filter{};               /**< Regular expression to filter tests by name. Only matching tests will be executed. */
+    std::string                                    id_filter{};                 /**< String to match selected test ids. Only matching tests will be executed. */
+    DatasetMode                                    mode{ DatasetMode::ALL };    /**< Dataset mode. */
+    int                                            num_iterations{ 1 };         /**< Number of iterations per test. */
+    float                                          cooldown_sec{ -1.f };        /**< Delay between tests in seconds. */
+    LogLevel                                       log_level{ LogLevel::NONE }; /**< Verbosity of the output. */
+    bool                                           configure_only{ false };     /**< Only configure kernels */
+};
+
 /** Information about a test case.
  *
  * A test can be identified either via its id or via its name. Additionally
@@ -99,14 +111,9 @@ public:
      *
      * @see TestFilter::TestFilter for the format of the string to filter ids.
      *
-     * @param[in] instruments    Instrument types that will be used for benchmarking.
-     * @param[in] num_iterations Number of iterations per test.
-     * @param[in] mode           Dataset mode.
-     * @param[in] name_filter    Regular expression to filter tests by name. Only matching tests will be executed.
-     * @param[in] id_filter      String to match selected test ids. Only matching tests will be executed.
-     * @param[in] log_level      Verbosity of the output.
+     * @param[in] config Framework configuration meta-data.
      */
-    void init(const std::vector<framework::InstrumentsDescription> &instruments, int num_iterations, DatasetMode mode, const std::string &name_filter, const std::string &id_filter, LogLevel log_level);
+    void init(const FrameworkConfig &config);
 
     /** Add a new test suite.
      *
@@ -223,13 +230,13 @@ public:
 
     /** Indicates if test execution is stopped after the first failed test.
      *
-     * @return True if the execution is going to be aborted after the first failed test.
+     * @return True if the execution is going to be stopped after the first failed test.
      */
     bool stop_on_error() const;
 
-    /** Set whether to abort execution after the first failed test.
+    /** Set whether to stop execution after the first failed test.
      *
-     * @param[in] stop_on_error True if execution is going to be aborted after first failed test.
+     * @param[in] stop_on_error True if execution is going to be stopped after first failed test.
      */
     void set_stop_on_error(bool stop_on_error);
 
@@ -293,6 +300,28 @@ public:
      * @return The current logging level.
      */
     LogLevel log_level() const;
+    /** Sets instruments info
+     *
+     * @note TODO(COMPMID-2638) : Remove once instruments are transferred outside the framework.
+     *
+     * @param[in] instr_info Instruments info to set
+     */
+    void set_instruments_info(InstrumentsInfo instr_info);
+    /** Get the configure only flag
+     *
+     * @return The current configure only flag.
+     */
+    bool configure_only() const;
+    /** Return whether the new fixture has been called
+     *
+     * @return The current new fixture call flag.
+     */
+    bool new_fixture_call() const;
+    /** Set the new fixture call flag
+     *
+     * @param[in] val Value to set for the flag
+     */
+    void set_new_fixture_call(bool val);
 
 private:
     Framework();
@@ -322,16 +351,19 @@ private:
     std::vector<std::unique_ptr<TestCaseFactory>> _test_factories{};
     std::map<TestInfo, TestResult> _test_results{};
     int                    _num_iterations{ 1 };
+    float                  _cooldown_sec{ -1.f };
     bool                   _throw_errors{ false };
     bool                   _stop_on_error{ false };
     bool                   _error_on_missing_assets{ false };
     std::vector<Printer *> _printers{};
+    bool                   _configure_only{ false };
+    bool                   _new_fixture_call{ false };
 
     using create_function = std::unique_ptr<Instrument>();
     std::map<InstrumentsDescription, create_function *> _available_instruments{};
 
     std::set<framework::InstrumentsDescription> _instruments{ std::pair<InstrumentType, ScaleFactor>(InstrumentType::NONE, ScaleFactor::NONE) };
-    TestFilter                                  _test_filter{};
+    std::unique_ptr<TestFilter>                 _test_filter;
     LogLevel                                    _log_level{ LogLevel::ALL };
     const TestInfo                             *_current_test_info{ nullptr };
     TestResult                                 *_current_test_result{ nullptr };
@@ -341,7 +373,7 @@ private:
 template <typename T>
 inline void Framework::add_test_case(std::string test_name, DatasetMode mode, TestCaseFactory::Status status)
 {
-    _test_factories.emplace_back(support::cpp14::make_unique<SimpleTestCaseFactory<T>>(current_suite_name(), std::move(test_name), mode, status));
+    _test_factories.emplace_back(std::make_unique<SimpleTestCaseFactory<T>>(current_suite_name(), std::move(test_name), mode, status));
 }
 
 template <typename T, typename D>

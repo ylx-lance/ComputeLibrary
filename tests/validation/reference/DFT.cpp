@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,6 +27,7 @@
 #include "Permute.h"
 #include "Reverse.h"
 #include "SliceOperations.h"
+#include "support/ToolchainSupport.h"
 
 #include <cmath>
 
@@ -50,6 +51,9 @@ namespace
 template <typename T>
 void rdft_1d_step(const T *src_ptr, size_t N, T *dst_ptr, size_t K)
 {
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(unsigned int k = 0; k < K; ++k)
     {
         float Xr = 0;
@@ -77,6 +81,9 @@ void rdft_1d_step(const T *src_ptr, size_t N, T *dst_ptr, size_t K)
 template <typename T>
 void dft_1d_step(const T *src_ptr, T *dst_ptr, size_t N)
 {
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(unsigned int k = 0; k < N; ++k)
     {
         float Xr = 0;
@@ -111,7 +118,9 @@ void irdft_1d_step(const T *src_ptr, size_t K, T *dst_ptr, size_t N)
     const bool         is_odd     = N % 2;
     const unsigned int Nleft      = N - K;
     const int          tail_start = is_odd ? K - 1 : K - 2;
-
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(unsigned int n = 0; n < N; ++n)
     {
         float xr = 0;
@@ -142,6 +151,9 @@ void irdft_1d_step(const T *src_ptr, size_t K, T *dst_ptr, size_t N)
 template <typename T>
 void idft_1d_step(const T *src_ptr, T *dst_ptr, size_t N)
 {
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(unsigned int n = 0; n < N; ++n)
     {
         float xr = 0;
@@ -181,6 +193,9 @@ SimpleTensor<T> rdft_1d_core(const SimpleTensor<T> &src, FFTDirection direction,
     SimpleTensor<T> dst(dst_shape, src.data_type(), num_channels);
 
     const unsigned int upper_dims = src.shape().total_size_upper(1);
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(unsigned int du = 0; du < upper_dims; ++du)
     {
         const T *src_row_ptr = src.data() + du * N * src.num_channels();
@@ -201,6 +216,9 @@ SimpleTensor<T> dft_1d_core(const SimpleTensor<T> &src, FFTDirection direction)
     SimpleTensor<T> dst(src.shape(), src.data_type(), src.num_channels());
 
     const unsigned int upper_dims = src.shape().total_size_upper(1);
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(unsigned int du = 0; du < upper_dims; ++du)
     {
         const T *src_row_ptr = src.data() + du * N * src.num_channels();
@@ -221,6 +239,9 @@ void scale(SimpleTensor<T> &tensor, T scaling_factor)
 {
     const int total_elements = tensor.num_elements() * tensor.num_channels();
     T        *data_ptr       = tensor.data();
+#if defined(_OPENMP)
+    #pragma omp parallel for
+#endif /* _OPENMP */
     for(int i = 0; i < total_elements; ++i)
     {
         data_ptr[i] /= scaling_factor;
@@ -237,32 +258,33 @@ void scale(SimpleTensor<T> &tensor, T scaling_factor)
 template <typename T>
 SimpleTensor<T> complex_mul_and_reduce(const SimpleTensor<T> &input, const SimpleTensor<T> &weights)
 {
-    const int W  = input.shape().x();
-    const int H  = input.shape().y();
-    const int Ci = input.shape().z();
-    const int Co = weights.shape()[3];
-    const int N  = input.shape().total_size() / (W * H * Ci);
+    const uint32_t W  = input.shape().x();
+    const uint32_t H  = input.shape().y();
+    const uint32_t Ci = input.shape().z();
+    const uint32_t Co = weights.shape()[3];
+    const uint32_t N  = input.shape().total_size() / (W * H * Ci);
 
     TensorShape output_shape = input.shape();
     output_shape.set(2, Co);
     SimpleTensor<T> dst(output_shape, input.data_type(), input.num_channels());
 
-    // MemSet dst memory to zero
-    std::memset(dst.data(), 0, dst.size());
+    // dst memory to zero
+    const auto total_element_count = dst.num_channels() * dst.num_elements();
+    std::fill_n(dst.data(), total_element_count, 0);
 
-    for(int b = 0; b < N; ++b)
+    for(uint32_t b = 0; b < N; ++b)
     {
-        for(int co = 0; co < Co; ++co)
+        for(uint32_t co = 0; co < Co; ++co)
         {
-            for(int ci = 0; ci < Ci; ++ci)
+            for(uint32_t ci = 0; ci < Ci; ++ci)
             {
-                for(int h = 0; h < H; ++h)
+                for(uint32_t h = 0; h < H; ++h)
                 {
-                    for(int w = 0; w < W; ++w)
+                    for(uint32_t w = 0; w < W; ++w)
                     {
-                        size_t            i_index  = w + h * W + ci * H * W + b * H * W * Ci;
-                        size_t            w_index  = w + h * W + ci * H * W + co * H * W * Ci;
-                        size_t            o_index  = w + h * W + co * H * W + b * H * W * Co;
+                        const uint32_t    i_index  = w + h * W + ci * H * W + b * H * W * Ci;
+                        const uint32_t    w_index  = w + h * W + ci * H * W + co * H * W * Ci;
+                        const uint32_t    o_index  = w + h * W + co * H * W + b * H * W * Co;
                         const Coordinates i_coords = index2coords(input.shape(), i_index);
                         const Coordinates w_coords = index2coords(weights.shape(), w_index);
                         const Coordinates o_coords = index2coords(dst.shape(), o_index);
@@ -298,7 +320,7 @@ SimpleTensor<T> ridft_1d(const SimpleTensor<T> &src, bool is_odd)
 {
     auto dst = rdft_1d_core(src, FFTDirection::Inverse, is_odd);
 
-    const T scaling_factor = dst.shape()[0];
+    const T scaling_factor = T(dst.shape()[0]);
     scale(dst, scaling_factor);
 
     return dst;
@@ -310,7 +332,7 @@ SimpleTensor<T> dft_1d(const SimpleTensor<T> &src, FFTDirection direction)
     auto dst = dft_1d_core(src, direction);
     if(direction == FFTDirection::Inverse)
     {
-        const T scaling_factor = dst.shape()[0];
+        const T scaling_factor = T(dst.shape()[0]);
         scale(dst, scaling_factor);
     }
     return dst;
@@ -339,7 +361,7 @@ SimpleTensor<T> ridft_2d(const SimpleTensor<T> &src, bool is_odd)
     auto transposed_2 = permute(first_pass, PermutationVector(1U, 0U));
     auto dst          = rdft_1d_core(transposed_2, direction, is_odd);
 
-    const T scaling_factor = dst.shape()[0] * dst.shape()[1];
+    const T scaling_factor = T(dst.shape()[0] * dst.shape()[1]);
     scale(dst, scaling_factor);
     return dst;
 }
@@ -363,7 +385,7 @@ SimpleTensor<T> dft_2d(const SimpleTensor<T> &src, FFTDirection direction)
         auto transposed_2 = permute(first_pass, PermutationVector(1U, 0U));
         auto dst          = dft_1d_core(transposed_2, direction);
 
-        const T scaling_factor = dst.shape()[0] * dst.shape()[1];
+        const T scaling_factor = T(dst.shape()[0] * dst.shape()[1]);
         scale(dst, scaling_factor);
 
         return dst;
@@ -405,6 +427,7 @@ SimpleTensor<T> conv2d_dft(const SimpleTensor<T> &src, const SimpleTensor<T> &w,
     return slice(conv_res, Coordinates(start_left, start_top), Coordinates(end_right, end_botton));
 }
 
+// FP32
 template SimpleTensor<float> rdft_1d(const SimpleTensor<float> &src);
 template SimpleTensor<float> ridft_1d(const SimpleTensor<float> &src, bool is_odd);
 template SimpleTensor<float> dft_1d(const SimpleTensor<float> &src, FFTDirection direction);
@@ -414,6 +437,17 @@ template SimpleTensor<float> ridft_2d(const SimpleTensor<float> &src, bool is_od
 template SimpleTensor<float> dft_2d(const SimpleTensor<float> &src, FFTDirection direction);
 
 template SimpleTensor<float> conv2d_dft(const SimpleTensor<float> &src, const SimpleTensor<float> &w, const PadStrideInfo &conv_info);
+
+// FP16
+template SimpleTensor<half> rdft_1d(const SimpleTensor<half> &src);
+template SimpleTensor<half> ridft_1d(const SimpleTensor<half> &src, bool is_odd);
+template SimpleTensor<half> dft_1d(const SimpleTensor<half> &src, FFTDirection direction);
+
+template SimpleTensor<half> rdft_2d(const SimpleTensor<half> &src);
+template SimpleTensor<half> ridft_2d(const SimpleTensor<half> &src, bool is_odd);
+template SimpleTensor<half> dft_2d(const SimpleTensor<half> &src, FFTDirection direction);
+
+template SimpleTensor<half> conv2d_dft(const SimpleTensor<half> &src, const SimpleTensor<half> &w, const PadStrideInfo &conv_info);
 } // namespace reference
 } // namespace validation
 } // namespace test

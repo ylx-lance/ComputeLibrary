@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_QUANTIZATION_LAYER_NODE_H__
-#define __ARM_COMPUTE_GRAPH_QUANTIZATION_LAYER_NODE_H__
+#ifndef ARM_COMPUTE_GRAPH_QUANTIZATION_LAYER_NODE_H
+#define ARM_COMPUTE_GRAPH_QUANTIZATION_LAYER_NODE_H
 
 #include "arm_compute/graph/INode.h"
 
@@ -40,6 +40,13 @@ public:
      */
     QuantizationLayerNode(QuantizationInfo out_quant_info);
 
+    /** Constructor
+     *
+     * @param[in] out_quant_info Output quantization info
+     * @param[in] out_data_type  Output data type
+     */
+    QuantizationLayerNode(QuantizationInfo out_quant_info, DataType out_data_type);
+
     // Inherited overridden methods:
     NodeType         type() const override;
     bool             forward_descriptors() override;
@@ -50,7 +57,8 @@ public:
 
 private:
     QuantizationInfo _out_quant_info;
+    DataType         _out_data_type;
 };
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_QUANTIZATION_LAYER_NODE_H__ */
+#endif /* ARM_COMPUTE_GRAPH_QUANTIZATION_LAYER_NODE_H */

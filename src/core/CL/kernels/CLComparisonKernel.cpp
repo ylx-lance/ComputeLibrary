@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,11 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/CL/kernels/CLComparisonKernel.h"
+#include "src/core/CL/kernels/CLComparisonKernel.h"
 
 #include "arm_compute/core/CL/CLHelpers.h"
-#include "arm_compute/core/CL/CLValidate.h"
 #include "arm_compute/core/CL/ICLTensor.h"
+#include "src/core/CL/CLValidate.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+#include "support/StringSupport.h"
 
 #include <map>
 
@@ -52,12 +55,7 @@ int calculate_num_elems_processed_per_iteration(const ITensorInfo &input)
 Status validate_arguments(const ITensorInfo &input1, const ITensorInfo &input2, const ITensorInfo &output, ComparisonOperation operation)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_F16_UNSUPPORTED(&input1);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(&input1,
-                                                         1,
-                                                         DataType::U8, DataType::S8, DataType::QASYMM8,
-                                                         DataType::U16, DataType::S16,
-                                                         DataType::U32, DataType::S32,
-                                                         DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON(input1.data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(&input1, &input2);
     ARM_COMPUTE_RETURN_ERROR_ON(supported_comparison_ops.count(operation) == 0);
 
@@ -77,16 +75,13 @@ Status validate_arguments(const ITensorInfo &input1, const ITensorInfo &input2, 
 
 std::pair<Status, Window> validate_and_configure_window(ITensorInfo &input1, ITensorInfo &input2, ITensorInfo &output)
 {
-    const std::pair<TensorShape, ValidRegion> broadcast_pair = ITensorInfo::broadcast_shape_and_valid_region(input1, input2);
-    const TensorShape &out_shape    = broadcast_pair.first;
-    const ValidRegion &valid_region = broadcast_pair.second;
-
+    const TensorShape &out_shape                         = TensorShape::broadcast_shape(input1.tensor_shape(), input2.tensor_shape());
     const unsigned int num_elems_processed_per_iteration = calculate_num_elems_processed_per_iteration(input1);
 
     // Auto initialize output if not initialized
     auto_init_if_empty(output, out_shape, 1, DataType::U8, QuantizationInfo());
 
-    Window win        = calculate_max_window(valid_region, Steps(num_elems_processed_per_iteration));
+    Window win        = calculate_max_window(out_shape, Steps(num_elems_processed_per_iteration));
     Window win_input1 = win.broadcast_if_dimension_le_one(input1);
     Window win_input2 = win.broadcast_if_dimension_le_one(input2);
 
@@ -98,8 +93,6 @@ std::pair<Status, Window> validate_and_configure_window(ITensorInfo &input1, ITe
                           || update_window_and_padding(win_input2, input2_access)
                           || update_window_and_padding(win, output_access);
 
-    output_access.set_valid_region(win, valid_region);
-
     Status err = (window_changed) ? ARM_COMPUTE_CREATE_ERROR(ErrorCode::RUNTIME_ERROR, "Insufficient Padding!") : Status{};
     return std::make_pair(err, win);
 }
@@ -108,9 +101,15 @@ std::pair<Status, Window> validate_and_configure_window(ITensorInfo &input1, ITe
 CLComparisonKernel::CLComparisonKernel()
     : _input1(nullptr), _input2(nullptr), _output(nullptr)
 {
+    _type = CLKernelType::ELEMENTWISE;
 }
 
 void CLComparisonKernel::configure(const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output, ComparisonOperation operation)
+{
+    configure(CLKernelLibrary::get().get_compile_context(), input1, input2, output, operation);
+}
+
+void CLComparisonKernel::configure(const CLCompileContext &compile_context, const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output, ComparisonOperation operation)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input1, input2, output);
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(*input1->info(), *input2->info(), *output->info(), operation));
@@ -132,7 +131,7 @@ void CLComparisonKernel::configure(const ICLTensor *input1, const ICLTensor *inp
     build_opts.emplace("-DVEC_SIZE=" + support::cpp11::to_string(calculate_num_elems_processed_per_iteration(*input1->info())));
     build_opts.emplace("-DOP=" + operation_name);
     build_opts.emplace("-DOP_NAME=" + lower_string(operation_name));
-    if(is_data_type_quantized_asymmetric(input1->info()->data_type()))
+    if(is_data_type_quantized(input1->info()->data_type()))
     {
         const UniformQuantizationInfo iq1_info = input1->info()->quantization_info().uniform();
         const UniformQuantizationInfo iq2_info = input2->info()->quantization_info().uniform();
@@ -145,7 +144,7 @@ void CLComparisonKernel::configure(const ICLTensor *input1, const ICLTensor *inp
     }
 
     // Create kernel
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel(kernel_name, build_opts));
+    _kernel = create_kernel(compile_context, kernel_name, build_opts);
 
     ICLKernel::configure_internal(win_config.second);
 

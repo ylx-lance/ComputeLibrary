@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -61,13 +61,19 @@ protected:
     template <typename U>
     void fill(U &&tensor, int i)
     {
-        std::uniform_real_distribution<> distribution(-1.0f, 1.0f);
+        static_assert(std::is_floating_point<T>::value || std::is_same<T, half>::value, "Only floating point data types supported.");
+        using DistributionType = typename std::conditional<std::is_same<T, half>::value, arm_compute::utils::uniform_real_distribution_16bit<T>, std::uniform_real_distribution<T>>::type;
+
+        DistributionType distribution{ T(-1.0f), T(1.0f) };
         library->fill(tensor, distribution, i);
     }
     template <typename U>
     void fill_custom_val(U &&tensor, float num, int i)
     {
-        std::uniform_real_distribution<> distribution(num, num);
+        static_assert(std::is_floating_point<T>::value || std::is_same<T, half>::value, "Only floating point data types supported.");
+        using DistributionType = typename std::conditional<std::is_same<T, half>::value, arm_compute::utils::uniform_real_distribution_16bit<T>, std::uniform_real_distribution<T>>::type;
+
+        DistributionType distribution{ T(num), T(num) };
         library->fill(tensor, distribution, i);
     }
     TensorType compute_target(const TensorShape &input_shape, const TensorShape &input_weights_shape, const TensorShape &recurrent_weights_shape, const TensorShape &cell_bias_shape,
@@ -161,22 +167,22 @@ protected:
                        &scratch, &output_state_out, &cell_state_out, &output,
                        lstm_params, info, cell_threshold, projection_threshold);
 
-        ARM_COMPUTE_EXPECT(input.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(input_to_forget_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(input_to_cell_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(input_to_output_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(recurrent_to_forget_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(recurrent_to_cell_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(recurrent_to_output_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(forget_gate_bias.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(cell_bias.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(output_gate_bias.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(output_state_in.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(cell_state_in.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(scratch.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(output_state_out.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(cell_state_out.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(output.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(input.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(input_to_forget_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(input_to_cell_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(input_to_output_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(recurrent_to_forget_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(recurrent_to_cell_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(recurrent_to_output_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(forget_gate_bias.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(cell_bias.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(output_gate_bias.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(output_state_in.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(cell_state_in.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(scratch.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(output_state_out.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(cell_state_out.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(output.info()->is_resizable());
 
         // Allocate tensors
         input.allocator()->allocate();
@@ -196,22 +202,22 @@ protected:
         cell_state_out.allocator()->allocate();
         output.allocator()->allocate();
 
-        ARM_COMPUTE_EXPECT(!input.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!input_to_forget_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!input_to_cell_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!input_to_output_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!recurrent_to_forget_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!recurrent_to_cell_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!recurrent_to_output_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!forget_gate_bias.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!cell_bias.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!output_gate_bias.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!output_state_in.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!cell_state_in.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!scratch.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!output_state_out.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!cell_state_out.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!output.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(!input.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!input_to_forget_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!input_to_cell_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!input_to_output_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!recurrent_to_forget_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!recurrent_to_cell_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!recurrent_to_output_w.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!forget_gate_bias.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!cell_bias.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!output_gate_bias.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!output_state_in.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!cell_state_in.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!scratch.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!output_state_out.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!cell_state_out.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!output.info()->is_resizable());
 
         // Fill tensors
         fill(AccessorType(input), 0);
@@ -230,18 +236,18 @@ protected:
 
         if(!cifg_opt)
         {
-            ARM_COMPUTE_EXPECT(input_to_input_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(recurrent_to_input_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(cell_to_input_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(input_gate_bias.info()->is_resizable(), framework::LogLevel::ERRORS);
+            ARM_COMPUTE_ASSERT(input_to_input_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(recurrent_to_input_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(cell_to_input_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(input_gate_bias.info()->is_resizable());
             input_to_input_w.allocator()->allocate();
             recurrent_to_input_w.allocator()->allocate();
             cell_to_input_w.allocator()->allocate();
             input_gate_bias.allocator()->allocate();
-            ARM_COMPUTE_EXPECT(!input_to_input_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(!recurrent_to_input_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(!cell_to_input_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(!input_gate_bias.info()->is_resizable(), framework::LogLevel::ERRORS);
+            ARM_COMPUTE_ASSERT(!input_to_input_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(!recurrent_to_input_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(!cell_to_input_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(!input_gate_bias.info()->is_resizable());
             fill(AccessorType(input_to_input_w), 13);
             fill(AccessorType(recurrent_to_input_w), 14);
             if(peephole_opt)
@@ -254,26 +260,26 @@ protected:
 
         if(peephole_opt)
         {
-            ARM_COMPUTE_EXPECT(cell_to_forget_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(cell_to_output_w.info()->is_resizable(), framework::LogLevel::ERRORS);
+            ARM_COMPUTE_ASSERT(cell_to_forget_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(cell_to_output_w.info()->is_resizable());
             cell_to_forget_w.allocator()->allocate();
             cell_to_output_w.allocator()->allocate();
-            ARM_COMPUTE_EXPECT(!cell_to_forget_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(!cell_to_output_w.info()->is_resizable(), framework::LogLevel::ERRORS);
+            ARM_COMPUTE_ASSERT(!cell_to_forget_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(!cell_to_output_w.info()->is_resizable());
             fill(AccessorType(cell_to_forget_w), 18);
             fill(AccessorType(cell_to_output_w), 19);
         }
 
         if(projection_opt)
         {
-            ARM_COMPUTE_EXPECT(projection_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(projection_bias.info()->is_resizable(), framework::LogLevel::ERRORS);
+            ARM_COMPUTE_ASSERT(projection_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(projection_bias.info()->is_resizable());
 
             projection_w.allocator()->allocate();
             projection_bias.allocator()->allocate();
 
-            ARM_COMPUTE_EXPECT(!projection_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(!projection_bias.info()->is_resizable(), framework::LogLevel::ERRORS);
+            ARM_COMPUTE_ASSERT(!projection_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(!projection_bias.info()->is_resizable());
 
             fill(AccessorType(projection_w), 20);
             fill(AccessorType(projection_bias), 21);
@@ -283,25 +289,25 @@ protected:
         {
             if(!cifg_opt)
             {
-                ARM_COMPUTE_EXPECT(input_layer_norm_w.info()->is_resizable(), framework::LogLevel::ERRORS);
+                ARM_COMPUTE_ASSERT(input_layer_norm_w.info()->is_resizable());
 
                 input_layer_norm_w.allocator()->allocate();
 
-                ARM_COMPUTE_EXPECT(!input_layer_norm_w.info()->is_resizable(), framework::LogLevel::ERRORS);
+                ARM_COMPUTE_ASSERT(!input_layer_norm_w.info()->is_resizable());
 
                 fill(AccessorType(input_layer_norm_w), 22);
             }
-            ARM_COMPUTE_EXPECT(forget_layer_norm_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(cell_layer_norm_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(output_layer_norm_w.info()->is_resizable(), framework::LogLevel::ERRORS);
+            ARM_COMPUTE_ASSERT(forget_layer_norm_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(cell_layer_norm_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(output_layer_norm_w.info()->is_resizable());
 
             forget_layer_norm_w.allocator()->allocate();
             cell_layer_norm_w.allocator()->allocate();
             output_layer_norm_w.allocator()->allocate();
 
-            ARM_COMPUTE_EXPECT(!forget_layer_norm_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(!cell_layer_norm_w.info()->is_resizable(), framework::LogLevel::ERRORS);
-            ARM_COMPUTE_EXPECT(!output_layer_norm_w.info()->is_resizable(), framework::LogLevel::ERRORS);
+            ARM_COMPUTE_ASSERT(!forget_layer_norm_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(!cell_layer_norm_w.info()->is_resizable());
+            ARM_COMPUTE_ASSERT(!output_layer_norm_w.info()->is_resizable());
 
             fill(AccessorType(forget_layer_norm_w), 23);
             fill(AccessorType(cell_layer_norm_w), 24);
@@ -407,7 +413,7 @@ protected:
 
         if(peephole_opt)
         {
-            SimpleTensor<T> pixelwise_mul_forget_gate = reference::pixel_wise_multiplication(cell_state_in, cell_to_forget_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO);
+            SimpleTensor<T> pixelwise_mul_forget_gate = reference::pixel_wise_multiplication<T, T, T>(cell_state_in, cell_to_forget_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_ZERO, data_type);
             forget_gate                               = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, forget_gate, pixelwise_mul_forget_gate, data_type, ConvertPolicy::SATURATE);
         }
 
@@ -416,7 +422,7 @@ protected:
             SimpleTensor<T> forget_layer_norm_w{ cell_bias_shape, data_type };
             fill(forget_layer_norm_w, 23);
             forget_gate = reference::mean_std_normalization_layer(forget_gate);
-            forget_gate = reference::pixel_wise_multiplication(forget_gate, forget_layer_norm_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN);
+            forget_gate = reference::pixel_wise_multiplication<T, T, T>(forget_gate, forget_layer_norm_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN, data_type);
             fill(forget_gate_bias, 7);
             forget_gate = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, forget_gate, forget_gate_bias, data_type, ConvertPolicy::SATURATE);
         }
@@ -438,7 +444,7 @@ protected:
             input_gate                            = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, fully_connected_input, gemm, data_type, ConvertPolicy::SATURATE);
             if(peephole_opt)
             {
-                SimpleTensor<T> pixelwise_mul_input_gate = reference::pixel_wise_multiplication(cell_state_in, cell_to_input_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN);
+                SimpleTensor<T> pixelwise_mul_input_gate = reference::pixel_wise_multiplication<T, T, T>(cell_state_in, cell_to_input_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN, data_type);
                 input_gate                               = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, input_gate, pixelwise_mul_input_gate, data_type, ConvertPolicy::SATURATE);
             }
             if(use_layer_norm)
@@ -446,7 +452,7 @@ protected:
                 SimpleTensor<T> input_layer_norm_w{ cell_bias_shape, data_type };
                 fill(input_layer_norm_w, 22);
                 input_gate = reference::mean_std_normalization_layer(input_gate);
-                input_gate = reference::pixel_wise_multiplication(input_gate, input_layer_norm_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN);
+                input_gate = reference::pixel_wise_multiplication<T, T, T>(input_gate, input_layer_norm_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN, data_type);
                 fill(input_gate_bias, 17);
                 input_gate = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, input_gate, input_gate_bias, data_type, ConvertPolicy::SATURATE);
             }
@@ -457,19 +463,19 @@ protected:
         SimpleTensor<T> fully_connected_cell_state = reference::fully_connected_layer(input, input_to_cell_w, cell_bias, output_cell_shape);
         transposed_weights                         = reference::transpose(recurrent_to_cell_w);
         gemm                                       = reference::gemm(output_state_in, transposed_weights, cell_state_out, 1.f, 0.f);
-        SimpleTensor<T> pixelwise_mul              = reference::pixel_wise_multiplication(cell_state_in, forget_gate, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN);
+        SimpleTensor<T> pixelwise_mul              = reference::pixel_wise_multiplication<T, T, T>(cell_state_in, forget_gate, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN, data_type);
         cell_state_out                             = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, fully_connected_cell_state, gemm, data_type, ConvertPolicy::SATURATE);
         if(use_layer_norm)
         {
             SimpleTensor<T> cell_layer_norm_w{ cell_bias_shape, data_type };
             fill(cell_layer_norm_w, 24);
             cell_state_out = reference::mean_std_normalization_layer(cell_state_out);
-            cell_state_out = reference::pixel_wise_multiplication(cell_state_out, cell_layer_norm_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN);
+            cell_state_out = reference::pixel_wise_multiplication<T, T, T>(cell_state_out, cell_layer_norm_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN, data_type);
             fill(cell_bias, 8);
             cell_state_out = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, cell_state_out, cell_bias, data_type, ConvertPolicy::SATURATE);
         }
         cell_state_out = reference::activation_layer(cell_state_out, ActivationLayerInfo(ActivationLayerInfo::ActivationFunction::LOGISTIC));
-        cell_state_out = reference::pixel_wise_multiplication(cell_state_out, input_gate, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN);
+        cell_state_out = reference::pixel_wise_multiplication<T, T, T>(cell_state_out, input_gate, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN, data_type);
         cell_state_out = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, cell_state_out, pixelwise_mul, data_type, ConvertPolicy::SATURATE);
         if(cell_threshold != 0.f)
         {
@@ -483,7 +489,7 @@ protected:
         output                                 = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, fully_connected_output, gemm, data_type, ConvertPolicy::SATURATE);
         if(peephole_opt)
         {
-            pixelwise_mul = reference::pixel_wise_multiplication(cell_state_out, cell_to_output_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN);
+            pixelwise_mul = reference::pixel_wise_multiplication<T, T, T>(cell_state_out, cell_to_output_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN, data_type);
             output        = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, output, pixelwise_mul, data_type, ConvertPolicy::SATURATE);
         }
         if(use_layer_norm)
@@ -491,7 +497,7 @@ protected:
             SimpleTensor<T> output_layer_norm_w{ cell_bias_shape, data_type };
             fill(output_layer_norm_w, 25);
             output = reference::mean_std_normalization_layer(output);
-            output = reference::pixel_wise_multiplication(output, output_layer_norm_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN);
+            output = reference::pixel_wise_multiplication<T, T, T>(output, output_layer_norm_w, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN, data_type);
             fill(output_gate_bias, 9);
             output = reference::arithmetic_operation(reference::ArithmeticOperation::ADD, output, output_gate_bias, data_type, ConvertPolicy::SATURATE);
         }
@@ -499,7 +505,7 @@ protected:
 
         // Compute output state
         SimpleTensor<T> cell_state_activation = reference::activation_layer(cell_state_out, info);
-        output_state_out                      = reference::pixel_wise_multiplication(output, cell_state_activation, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN);
+        output_state_out                      = reference::pixel_wise_multiplication<T, T, T>(output, cell_state_activation, 1, ConvertPolicy::SATURATE, RoundingPolicy::TO_NEAREST_EVEN, data_type);
 
         if(projection_opt)
         {

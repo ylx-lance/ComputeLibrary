@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -27,18 +27,10 @@
 #include "arm_compute/core/Error.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/Utils.h"
-#include "arm_compute/runtime/CPUUtils.h"
-
 #include <omp.h>
 
-using namespace arm_compute;
-
-OMPScheduler &OMPScheduler::get()
+namespace arm_compute
 {
-    static OMPScheduler scheduler;
-    return scheduler;
-}
-
 OMPScheduler::OMPScheduler() // NOLINT
     : _num_threads(omp_get_max_threads())
 {
@@ -57,19 +49,25 @@ void OMPScheduler::set_num_threads(unsigned int num_threads)
 
 void OMPScheduler::schedule(ICPPKernel *kernel, const Hints &hints)
 {
+    ITensorPack tensors;
+    schedule_common(kernel, hints, kernel->window(), tensors);
+}
+
+void OMPScheduler::schedule_op(ICPPKernel *kernel, const Hints &hints, const Window &window, ITensorPack &tensors)
+{
     ARM_COMPUTE_ERROR_ON_MSG(!kernel, "The child class didn't set the kernel");
     ARM_COMPUTE_ERROR_ON_MSG(hints.strategy() == StrategyHint::DYNAMIC,
                              "Dynamic scheduling is not supported in OMPScheduler");
 
-    const Window      &max_window     = kernel->window();
+    const Window      &max_window     = window;
     const unsigned int num_iterations = max_window.num_iterations(hints.split_dimension());
     const unsigned int num_threads    = std::min(num_iterations, _num_threads);
 
     if(!kernel->is_parallelisable() || num_threads == 1)
     {
         ThreadInfo info;
-        info.cpu_info = &_cpu_info;
-        kernel->run(max_window, info);
+        info.cpu_info = &cpu_info();
+        kernel->run_op(tensors, max_window, info);
     }
     else
     {
@@ -78,17 +76,16 @@ void OMPScheduler::schedule(ICPPKernel *kernel, const Hints &hints)
         for(unsigned int t = 0; t < num_windows; t++)
         {
             //Capture 't' by copy, all the other variables by reference:
-            workloads[t] = [t, &hints, &max_window, &num_windows, &kernel](const ThreadInfo & info)
+            workloads[t] = [t, &hints, &max_window, &num_windows, &kernel, &tensors](const ThreadInfo & info)
             {
                 Window win = max_window.split_window(hints.split_dimension(), t, num_windows);
                 win.validate();
-                kernel->run(win, info);
+                kernel->run_op(tensors, win, info);
             };
         }
         run_workloads(workloads);
     }
 }
-
 #ifndef DOXYGEN_SKIP_THIS
 void OMPScheduler::run_workloads(std::vector<arm_compute::IScheduler::Workload> &workloads)
 {
@@ -99,7 +96,7 @@ void OMPScheduler::run_workloads(std::vector<arm_compute::IScheduler::Workload> 
     }
 
     ThreadInfo info;
-    info.cpu_info    = &_cpu_info;
+    info.cpu_info    = &cpu_info();
     info.num_threads = num_threads;
     #pragma omp parallel firstprivate(info) num_threads(num_threads)
     {
@@ -109,3 +106,4 @@ void OMPScheduler::run_workloads(std::vector<arm_compute::IScheduler::Workload> 
     }
 }
 #endif /* DOXYGEN_SKIP_THIS */
+} // namespace arm_compute

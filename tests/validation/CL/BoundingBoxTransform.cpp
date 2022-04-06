@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -24,7 +24,6 @@
 #include "arm_compute/runtime/CL/CLScheduler.h"
 #include "arm_compute/runtime/CL/functions/CLBoundingBoxTransform.h"
 #include "tests/CL/CLAccessor.h"
-#include "tests/CL/CLArrayAccessor.h"
 #include "tests/Globals.h"
 #include "tests/framework/Macros.h"
 #include "tests/framework/datasets/Datasets.h"
@@ -45,6 +44,8 @@ AbsoluteTolerance<float> absolute_tolerance_f32(0.001f);
 
 RelativeTolerance<half>  relative_tolerance_f16(half(0.2));
 AbsoluteTolerance<float> absolute_tolerance_f16(half(0.02f));
+
+constexpr AbsoluteTolerance<uint16_t> tolerance_qasymm16(1);
 
 // *INDENT-OFF*
 // clang-format off
@@ -127,6 +128,21 @@ FIXTURE_DATA_TEST_CASE(BoundingBox, CLBoundingBoxTransformFixture<half>, framewo
 }
 TEST_SUITE_END() // FP16
 TEST_SUITE_END() // Float
+
+template <typename T>
+using CLBoundingBoxTransformQuantizedFixture = BoundingBoxTransformQuantizedFixture<CLTensor, CLAccessor, CLBoundingBoxTransform, T>;
+
+TEST_SUITE(Quantized)
+TEST_SUITE(QASYMM16)
+FIXTURE_DATA_TEST_CASE(BoundingBox, CLBoundingBoxTransformQuantizedFixture<uint16_t>, framework::DatasetMode::ALL,
+                       combine(combine(combine(DeltaDataset, BboxInfoDataset), framework::dataset::make("DataType", { DataType::QASYMM16 })),
+                               framework::dataset::make("DeltasQuantInfo", { QuantizationInfo(1.f / 255.f, 127) })))
+{
+    // Validate output
+    validate(CLAccessor(_target), _reference, tolerance_qasymm16);
+}
+TEST_SUITE_END() // QASYMM16
+TEST_SUITE_END() // Quantized
 
 TEST_SUITE_END() // BBoxTransform
 TEST_SUITE_END() // CL

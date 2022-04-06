@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_BOUNDINGBOXTRANSFORM_H__
-#define __ARM_COMPUTE_TEST_BOUNDINGBOXTRANSFORM_H__
+#ifndef ARM_COMPUTE_TEST_BOUNDINGBOXTRANSFORM_H
+#define ARM_COMPUTE_TEST_BOUNDINGBOXTRANSFORM_H
 
 #include "BoundingBoxTransform.h"
 
@@ -38,10 +38,10 @@ namespace validation
 {
 namespace reference
 {
-template <typename T>
-SimpleTensor<T> bounding_box_transform(const SimpleTensor<T> &boxes, const SimpleTensor<T> &deltas, const BoundingBoxTransformInfo &info);
+template <typename T, typename TDeltas>
+SimpleTensor<T> bounding_box_transform(const SimpleTensor<T> &boxes, const SimpleTensor<TDeltas> &deltas, const BoundingBoxTransformInfo &info);
 } // namespace reference
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_BOUNDINGBOXTRANSFORM_H__ */
+#endif /* ARM_COMPUTE_TEST_BOUNDINGBOXTRANSFORM_H */

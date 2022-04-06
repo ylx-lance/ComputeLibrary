@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,13 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NESTACKLAYER_H__
-#define __ARM_COMPUTE_NESTACKLAYER_H__
+#ifndef ARM_COMPUTE_NESTACKLAYER_H
+#define ARM_COMPUTE_NESTACKLAYER_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/IFunction.h"
-
-#include "arm_compute/core/NEON/kernels/NEStackLayerKernel.h"
 
 #include <memory>
 #include <vector>
@@ -35,6 +33,8 @@
 namespace arm_compute
 {
 class ITensor;
+class ITensorInfo;
+class NEStackLayerKernel;
 
 /** Basic function to stack tensors along an axis. This function calls the following kernel:
  *
@@ -46,11 +46,29 @@ class NEStackLayer : public IFunction
 public:
     /** Default constructor */
     NEStackLayer();
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEStackLayer(const NEStackLayer &) = delete;
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEStackLayer &operator=(const NEStackLayer &) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NEStackLayer(NEStackLayer &&) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NEStackLayer &operator=(NEStackLayer &&) = delete;
+    /** Default destructor */
+    ~NEStackLayer();
     /** Initialise the kernel's inputs vector and output.
+     *
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |All            |All            |
      *
      * @note Supported input tensor rank: up to 4
      *
-     * @param[in]  input  The vectors containing all the tensors with the same shape to stack. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32
+     * @param[in]  input  The vectors containing all the tensors with the same shape to stack. Data types supported: All
      * @param[in]  axis   The dimension to stack the tensors along. It must be smaller than the number of input dimensions.
      *                    Negative values wrap around
      * @param[out] output Output tensor. Data types supported: Same as @p input.
@@ -60,7 +78,7 @@ public:
      *
      * @note Supported input tensor rank: up to 4
      *
-     * @param[in] input  The vectors containing all the tensors info with the same shape to stack. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32
+     * @param[in] input  The vectors containing all the tensors info with the same shape to stack. Data types supported: All
      * @param[in] axis   The dimension to stack the tensors along. It must be smaller than the number of input dimensions.
      *                   Negative values wrap around
      * @param[in] output Output tensor info. Data types supported: Same as @p input.
@@ -73,9 +91,9 @@ public:
     void run() override;
 
 private:
-    std::vector<ITensor *>          _input;
-    std::vector<NEStackLayerKernel> _stack_kernels;
-    unsigned int                    _num_inputs;
+    std::vector<ITensor *>                           _input;
+    std::vector<std::unique_ptr<NEStackLayerKernel>> _stack_kernels;
+    unsigned int                                     _num_inputs;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_NESTACKLAYER_H__ */
+#endif /* ARM_COMPUTE_NESTACKLAYER_H */

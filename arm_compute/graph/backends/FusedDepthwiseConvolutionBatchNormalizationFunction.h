@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -22,8 +22,8 @@
  * SOFTWARE.
  */
 
-#ifndef __ARM_COMPUTE_GRAPH_BACKENDS_FUSED_DEPTHWISE_CONVOLUTION_BATCH_NORMALIZATION_FUNCTION_H__
-#define __ARM_COMPUTE_GRAPH_BACKENDS_FUSED_DEPTHWISE_CONVOLUTION_BATCH_NORMALIZATION_FUNCTION_H__
+#ifndef ARM_COMPUTE_GRAPH_BACKENDS_FUSED_DEPTHWISE_CONVOLUTION_BATCH_NORMALIZATION_FUNCTION_H
+#define ARM_COMPUTE_GRAPH_BACKENDS_FUSED_DEPTHWISE_CONVOLUTION_BATCH_NORMALIZATION_FUNCTION_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/IFunction.h"
@@ -42,8 +42,8 @@ public:
     using TensorType         = typename TargetInfo::TensorType;
     using TensorConcreteType = typename TargetInfo::TensorConcreteType;
 
-    FusedDepthwiseConvolutionBatchNormalizationFunction()
-        : _depth_conv_layer(), _fused_batch_norm_layer(), _fused_bias(), _is_prepared(false)
+    FusedDepthwiseConvolutionBatchNormalizationFunction(std::shared_ptr<IMemoryManager> memory_manager = nullptr)
+        : _depth_conv_layer(memory_manager), _fused_batch_norm_layer(), _fused_bias(), _is_prepared(false)
     {
     }
 
@@ -128,4 +128,4 @@ private:
 } // namespace graph
 } // namespace arm_compute
 
-#endif /* __ARM_COMPUTE_GRAPH_BACKENDS_FUSED_DEPTHWISE_CONVOLUTION_BATCH_NORMALIZATION_FUNCTION_H__ */
+#endif /* ARM_COMPUTE_GRAPH_BACKENDS_FUSED_DEPTHWISE_CONVOLUTION_BATCH_NORMALIZATION_FUNCTION_H */

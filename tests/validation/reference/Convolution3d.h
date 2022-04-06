@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,10 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_VALIDATION_CONVOLUTION_H__
-#define __ARM_COMPUTE_TEST_VALIDATION_CONVOLUTION_H__
+#ifndef ARM_COMPUTE_TEST_VALIDATION_CONVOLUTION_H
+#define ARM_COMPUTE_TEST_VALIDATION_CONVOLUTION_H
 
 #include "arm_compute/core/utils/quantization/AsymmHelpers.h"
+#include "support/Requires.h"
 #include "tests/validation/Helpers.h"
 #include "tests/validation/reference/UtilsQuantizedAsymm.h"
 
@@ -42,13 +43,16 @@ inline bool is_valid_pixel(int i, int min, int max)
 }
 
 // 3D convolution for floating point type
-template < typename T, typename TB, typename std::enable_if < validation::is_floating_point<T>::value &&validation::is_floating_point<TB>::value, int >::type = 0 >
-inline void convolution3d(const SimpleTensor<T> &in, const SimpleTensor<T> &weights, const SimpleTensor<TB> &bias, SimpleTensor<T> &out,
+template < typename T, typename TW, typename TB, typename std::enable_if < validation::is_floating_point<T>::value &&validation::is_floating_point<TW>::value
+                                                                           &&validation::is_floating_point<TB>::value,
+                                                                           int >::type = 0 >
+inline void convolution3d(const SimpleTensor<T> &in, const SimpleTensor<TW> &weights, const SimpleTensor<TB> &bias, SimpleTensor<T> &out,
                           int i_offset, int w_offset, int b_offset, int o_offset,
-                          int xi, int yi, int width_in, int height_in, int depth_in, int width_weights, int height_weights, int dilation_x = 1, int dilation_y = 1)
+                          int xi, int yi, int width_in, int height_in, int depth_in, int width_weights, int height_weights, int dilation_x = 1, int dilation_y = 1, int filter_id = 0)
 {
+    ARM_COMPUTE_UNUSED(filter_id);
     const T *in_ptr  = in.data() + i_offset;
-    const T *w_ptr   = weights.data() + w_offset;
+    const TW *w_ptr   = weights.data() + w_offset;
     const TB *b_ptr   = bias.data() + b_offset;
     T        *out_ptr = out.data() + o_offset;
 
@@ -77,8 +81,8 @@ inline void convolution3d(const SimpleTensor<T> &in, const SimpleTensor<T> &weig
                     const int idx = xk + half_width_weights_start;
                     const int idy = yk + half_height_weights_start;
 
-                    const T i_value = in_ptr[offset_slice_in + xk * dilation_x + yk * dilation_y * width_in];
-                    const T w_value = w_ptr[idx + idy * width_weights + ifm * width_weights * height_weights];
+                    const T  i_value = in_ptr[offset_slice_in + xk * dilation_x + yk * dilation_y * width_in];
+                    const TW w_value = w_ptr[idx + idy * width_weights + ifm * width_weights * height_weights];
 
                     acc += i_value * w_value;
                 }
@@ -91,13 +95,14 @@ inline void convolution3d(const SimpleTensor<T> &in, const SimpleTensor<T> &weig
 }
 
 // 3D convolution for QASYMM8 type
-template < typename T, typename TB, typename std::enable_if < std::is_same<T, uint8_t>::value &&std::is_same<TB, int32_t>::value, int >::type = 0 >
-inline void convolution3d(const SimpleTensor<T> &in, const SimpleTensor<T> &weights, const SimpleTensor<TB> &bias, SimpleTensor<T> &out,
+template < typename T, typename TW, typename TB, ARM_COMPUTE_REQUIRES_TA((std::is_same<T, uint8_t>::value || std::is_same<T, int8_t>::value) &&(std::is_same<TW, uint8_t>::value
+                                                                         || std::is_same<TW, int8_t>::value)) >
+inline void convolution3d(const SimpleTensor<T> &in, const SimpleTensor<TW> &weights, const SimpleTensor<TB> &bias, SimpleTensor<T> &out,
                           int i_offset, int w_offset, int b_offset, int o_offset,
-                          int xi, int yi, int width_in, int height_in, int depth_in, int width_weights, int height_weights, int dilation_x = 1, int dilation_y = 1)
+                          int xi, int yi, int width_in, int height_in, int depth_in, int width_weights, int height_weights, int dilation_x = 1, int dilation_y = 1, int filter_id = 0)
 {
     const T *in_ptr  = in.data() + i_offset;
-    const T *w_ptr   = weights.data() + w_offset;
+    const TW *w_ptr   = weights.data() + w_offset;
     const TB *b_ptr   = bias.data() + b_offset;
     T        *out_ptr = out.data() + o_offset;
 
@@ -107,15 +112,27 @@ inline void convolution3d(const SimpleTensor<T> &in, const SimpleTensor<T> &weig
 
     const int   input_offset   = -iq_info.offset;
     const float input_scale    = iq_info.scale;
-    const int   weights_offset = -wq_info.offset;
-    const float weights_scale  = wq_info.scale;
-    const int   output_offset  = oq_info.offset;
-    const float output_scale   = oq_info.scale;
+    int         weights_offset = -wq_info.offset;
+    float       weights_scale  = wq_info.scale;
+    if(is_data_type_quantized_per_channel(weights.data_type()))
+    {
+        if(is_data_type_quantized_asymmetric(weights.data_type()))
+        {
+            weights_offset = weights.quantization_info().offset()[filter_id];
+        }
+        else
+        {
+            weights_offset = 0;
+        }
+        weights_scale = weights.quantization_info().scale()[filter_id];
+    }
+    const int   output_offset = oq_info.offset;
+    const float output_scale  = oq_info.scale;
 
     int         output_multiplier = 0;
     int         output_shift      = 0;
     const float multiplier        = input_scale * weights_scale / output_scale;
-    arm_compute::quantization::calculate_quantized_multiplier_less_than_one(multiplier, &output_multiplier, &output_shift);
+    arm_compute::quantization::calculate_quantized_multiplier(multiplier, &output_multiplier, &output_shift);
 
     const int half_width_weights_start  = width_weights / 2;
     const int half_width_weights_end    = ((width_weights % 2) == 0) ? (half_width_weights_start - 1) : half_width_weights_start;
@@ -142,9 +159,8 @@ inline void convolution3d(const SimpleTensor<T> &in, const SimpleTensor<T> &weig
                     const int idx = xk + half_width_weights_start;
                     const int idy = yk + half_height_weights_start;
 
-                    const uint8_t i_value = in_ptr[offset_slice_in + xk * dilation_x + yk * dilation_y * width_in];
-                    const uint8_t w_value = w_ptr[idx + idy * width_weights + ifm * width_weights * height_weights];
-
+                    const int32_t i_value = in_ptr[offset_slice_in + xk * dilation_x + yk * dilation_y * width_in];
+                    const int32_t w_value = w_ptr[idx + idy * width_weights + ifm * width_weights * height_weights];
                     acc += (i_value + input_offset) * (w_value + weights_offset);
                 }
             }
@@ -154,9 +170,9 @@ inline void convolution3d(const SimpleTensor<T> &in, const SimpleTensor<T> &weig
     // Accumulate the bias
     acc += (*b_ptr);
 
-    acc = validation::asymm_rounding_divide_by_pow2(validation::asymm_int_mult(acc, output_multiplier), output_shift);
-    acc += output_offset;
-    acc = utility::clamp<int32_t>(acc, 0, 255);
+    // Quantize down
+    acc = validation::quantize_down_scale_by_fixedpoint(acc, output_multiplier, output_shift, output_offset,
+                                                        std::numeric_limits<T>::lowest(), std::numeric_limits<T>::max());
 
     // Store the result
     *out_ptr = acc;
@@ -165,4 +181,4 @@ inline void convolution3d(const SimpleTensor<T> &in, const SimpleTensor<T> &weig
 } // namespace convolution_3d
 } // namespace test
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_TEST_VALIDATION_CONVOLUTION_H__ */
+#endif /* ARM_COMPUTE_TEST_VALIDATION_CONVOLUTION_H */

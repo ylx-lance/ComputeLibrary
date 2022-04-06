@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -70,17 +70,17 @@ protected:
         FunctionType dropout_layer;
         dropout_layer.configure(&src, &mask, &dst, ratio, forward);
 
-        ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(dst.info()->is_resizable());
 
         // Allocate tensors
         src.allocator()->allocate();
         mask.allocator()->allocate();
         dst.allocator()->allocate();
 
-        ARM_COMPUTE_EXPECT(!src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!mask.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(!src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!mask.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!dst.info()->is_resizable());
 
         // Fill tensors
         fill(AccessorType(src));
@@ -93,6 +93,7 @@ protected:
 
     SimpleTensor<T> compute_reference(const TensorShape &shape, DataType data_type)
     {
+        ARM_COMPUTE_UNUSED(shape, data_type);
     }
 
     TensorType      _target{};

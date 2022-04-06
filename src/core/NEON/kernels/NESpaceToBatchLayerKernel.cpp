@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,14 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/NEON/kernels/NESpaceToBatchLayerKernel.h"
+#include "src/core/NEON/kernels/NESpaceToBatchLayerKernel.h"
 
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/ITensor.h"
-#include "arm_compute/core/NEON/wrapper/wrapper.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/NEON/wrapper/wrapper.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+
 #include <arm_neon.h>
 #include <cstdint>
 
@@ -38,14 +41,16 @@ namespace arm_compute
 {
 namespace
 {
-Status validate_arguments(const ITensorInfo *input, const ITensorInfo *block_info, const ITensorInfo *padddings, const ITensorInfo *output)
+Status validate_arguments(const ITensorInfo *input, const ITensorInfo *block_info, const ITensorInfo *paddings, const ITensorInfo *output)
 {
-    ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, block_info, padddings, output);
+    ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, block_info, paddings, output);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(block_info, 1, DataType::S32);
     ARM_COMPUTE_RETURN_ERROR_ON(input->num_dimensions() > 4);
     ARM_COMPUTE_RETURN_ERROR_ON(block_info->num_dimensions() > 1);
-    ARM_COMPUTE_RETURN_ERROR_ON(padddings->num_dimensions() > 2);
-    ARM_COMPUTE_RETURN_ERROR_ON(padddings->tensor_shape()[1] != block_info->tensor_shape()[0]);
+    ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DIMENSIONS(block_info->tensor_shape(), TensorShape{ 2 });
+    ARM_COMPUTE_RETURN_ERROR_ON(paddings->num_dimensions() > 2);
+    ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DIMENSIONS(paddings->tensor_shape(), TensorShape{ 2, 2 });
 
     // Validate output if initialized
     if(output->total_size() != 0)
@@ -54,6 +59,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *block_inf
         const int        idx_channel = get_data_layout_dimension_index(data_layout, DataLayoutDimension::CHANNEL);
         ARM_COMPUTE_RETURN_ERROR_ON(input->tensor_shape()[idx_channel] != output->tensor_shape()[idx_channel]);
         ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input, output);
+        ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_QUANTIZATION_INFO(input, output);
     }
 
     return Status{};
@@ -62,22 +68,15 @@ Status validate_arguments_static(const ITensorInfo *input, const int block_shape
                                  const ITensorInfo *output)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
-    ARM_COMPUTE_RETURN_ERROR_ON(block_shape_x < 1 || block_shape_y < 1);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON(input->num_dimensions() > 4);
+    ARM_COMPUTE_RETURN_ERROR_ON(block_shape_x < 1 || block_shape_y < 1);
 
     // Validate output if initialized
     if(output->total_size() != 0)
     {
-        const DataLayout data_layout = input->data_layout();
-        const int        idx_width   = get_data_layout_dimension_index(data_layout, DataLayoutDimension::WIDTH);
-        const int        idx_height  = get_data_layout_dimension_index(data_layout, DataLayoutDimension::HEIGHT);
-        const int        idx_channel = get_data_layout_dimension_index(data_layout, DataLayoutDimension::CHANNEL);
-        const int        idx_batch   = get_data_layout_dimension_index(data_layout, DataLayoutDimension::BATCHES);
-        ARM_COMPUTE_RETURN_ERROR_ON(output->tensor_shape()[idx_width] < padding_left.x() + padding_right.y());
-        ARM_COMPUTE_RETURN_ERROR_ON((input->tensor_shape()[idx_width] + padding_left.x() + padding_right.x()) % block_shape_x != 0);
-        ARM_COMPUTE_RETURN_ERROR_ON((input->tensor_shape()[idx_height] + padding_left.y() + padding_right.y()) % block_shape_y != 0);
-        ARM_COMPUTE_RETURN_ERROR_ON(input->tensor_shape()[idx_channel] != output->tensor_shape()[idx_channel]);
-        ARM_COMPUTE_RETURN_ERROR_ON(output->tensor_shape()[idx_batch] % (block_shape_x * block_shape_y) != 0);
+        TensorShape expected_output_shape = misc::shape_calculator::compute_space_to_batch_shape(input, block_shape_x, block_shape_y, padding_left, padding_right);
+        ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DIMENSIONS(output->tensor_shape(), expected_output_shape);
         ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_DATA_TYPES(input, output);
         ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_QUANTIZATION_INFO(input, output);
     }
@@ -87,19 +86,20 @@ Status validate_arguments_static(const ITensorInfo *input, const int block_shape
 } // namespace
 
 NESpaceToBatchLayerKernel::NESpaceToBatchLayerKernel()
-    : _input(nullptr), _block_shape(nullptr), _paddings(nullptr), _output(nullptr), _padding_left(), _block_shape_x(), _block_shape_y()
+    : _input(nullptr), _block_shape(nullptr), _paddings(nullptr), _output(nullptr), _data_layout(DataLayout::UNKNOWN), _padding_left(), _block_shape_x(), _block_shape_y()
 {
 }
 
 void NESpaceToBatchLayerKernel::configure(const ITensor *input, const ITensor *block_shape, const ITensor *paddings, ITensor *output)
 {
-    ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
+    ARM_COMPUTE_ERROR_ON_NULLPTR(input, block_shape, paddings, output);
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input->info(), block_shape->info(), paddings->info(), output->info()));
 
     _input       = input;
     _block_shape = block_shape;
     _paddings    = paddings;
     _output      = output;
+    _data_layout = input->info()->data_layout();
 
     // Configure kernel window
     Window win = calculate_max_window(*output->info(), Steps());
@@ -121,6 +121,7 @@ void NESpaceToBatchLayerKernel::configure(const ITensor *input, const int block_
     _block_shape_x = block_shape_x;
     _block_shape_y = block_shape_y;
     _padding_left  = padding_left;
+    _data_layout   = input->info()->data_layout();
 
     // Configure kernel window
     Window win = calculate_max_window(*output->info(), Steps());
@@ -158,21 +159,21 @@ void NESpaceToBatchLayerKernel::run(const Window &window, const ThreadInfo &info
         const size_t pad_left_y = *reinterpret_cast<const size_t *>(_paddings->ptr_to_element({ 1, 0 }));
         _padding_left           = Size2D(pad_left_x, pad_left_y);
     }
-    const DataLayout data_layout  = _input->info()->data_layout();
-    const int        height_idx   = get_data_layout_dimension_index(data_layout, DataLayoutDimension::HEIGHT);
-    const int        width_idx    = get_data_layout_dimension_index(data_layout, DataLayoutDimension::WIDTH);
-    const int        element_size = _input->info()->element_size();
+    const int height_idx   = get_data_layout_dimension_index(_data_layout, DataLayoutDimension::HEIGHT);
+    const int width_idx    = get_data_layout_dimension_index(_data_layout, DataLayoutDimension::WIDTH);
+    const int batch_idx    = get_data_layout_dimension_index(_data_layout, DataLayoutDimension::BATCHES);
+    const int element_size = _input->info()->element_size();
 
     const size_t height     = _input->info()->dimension(height_idx);
     const size_t width      = _input->info()->dimension(width_idx);
-    const size_t batch_size = _input->info()->dimension(3);
+    const size_t batch_size = _input->info()->dimension(batch_idx);
 
     Window slice_out = window.first_slice_window_3D();
 
     int batch_id = 0;
 
     // Main loop for NCHW and NHWC
-    if(_output->info()->data_layout() == DataLayout::NCHW)
+    if(_data_layout == DataLayout::NCHW)
     {
         do
         {

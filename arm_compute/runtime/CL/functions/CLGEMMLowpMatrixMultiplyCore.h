@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,36 +21,23 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLGEMMLOWPMATRIXMULTIPLYCORE_H__
-#define __ARM_COMPUTE_CLGEMMLOWPMATRIXMULTIPLYCORE_H__
+#ifndef ARM_COMPUTE_CLGEMMLOWPMATRIXMULTIPLYCORE_H
+#define ARM_COMPUTE_CLGEMMLOWPMATRIXMULTIPLYCORE_H
 
-#include "arm_compute/core/CL/kernels/CLGEMMLowpMatrixMultiplyKernel.h"
-#include "arm_compute/core/CL/kernels/CLGEMMLowpMatrixMultiplyNativeKernel.h"
-#include "arm_compute/core/CL/kernels/CLGEMMLowpMatrixMultiplyReshapedOnlyRHSKernel.h"
-#include "arm_compute/core/CL/kernels/CLGEMMLowpOffsetContributionKernel.h"
-#include "arm_compute/core/CL/kernels/CLGEMMLowpOffsetContributionOutputStageKernel.h"
-#include "arm_compute/core/CL/kernels/CLGEMMLowpReductionKernel.h"
-#include "arm_compute/core/CL/kernels/CLGEMMReshapeRHSMatrixKernel.h"
-#include "arm_compute/runtime/CL/CLMemoryGroup.h"
 #include "arm_compute/runtime/CL/CLTensor.h"
 #include "arm_compute/runtime/IFunction.h"
+#include "arm_compute/runtime/MemoryGroup.h"
+
+#include <memory>
 
 namespace arm_compute
 {
+class CLCompileContext;
 class IMemoryManager;
 class ICLTensor;
+class ITensorInfo;
 
-/** Basic function to execute GEMMLowpMatrixMultiplyCore on OpenCL. This function calls the following OpenCL kernels:
- *
- *  -# @ref CLGEMMReshapeRHSMatrixKernel  (if the output tensor is a matrix)
- *  -# @ref CLGEMMLowpMatrixMultiplyKernel (if the parameter "reshape_b_only_on_first_run" of GEMMInfo is FALSE)
- *  -# @ref CLGEMMLowpMatrixMultiplyReshapedOnlyRHSKernel (if the parameter "reshape_b_only_on_first_run" of GEMMInfo is TRUE)
- *  -# @ref CLGEMMLowpMatrixAReductionKernel (if the offset of matrix B is not 0)
- *  -# @ref CLGEMMLowpMatrixBReductionKernel (if the offset of matrix A is not 0)
- *  -# @ref CLGEMMLowpOffsetContributionKernel (if gemm_info.gemmlowp_output_stage == NONE)
- *  -# @ref CLGEMMLowpOffsetContributionOutputStageKernel (if gemm_info.gemmlowp_output_stage != NONE)
- *
-*/
+/** Basic function to execute GEMMLowpMatrixMultiplyCore on OpenCL. */
 class CLGEMMLowpMatrixMultiplyCore : public IFunction
 {
 public:
@@ -64,30 +51,71 @@ public:
     CLGEMMLowpMatrixMultiplyCore &operator=(const CLGEMMLowpMatrixMultiplyCore &) = delete;
     /** Default move assignment operator */
     CLGEMMLowpMatrixMultiplyCore &operator=(CLGEMMLowpMatrixMultiplyCore &&) = default;
+    /** Default destructor */
+    ~CLGEMMLowpMatrixMultiplyCore();
+    /** Initialise the kernel's inputs, output
+     *
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src0           |src1               |src2     |dst            |
+     * |:--------------|:------------------|:--------|:--------------|
+     * |QASYMM8        |QASYMM8            |S32      |QASYMM8        |
+     * |QASYMM8        |QSYMM8_PER_CHANNEL |S32      |QASYMM8        |
+     * |QASYMM8        |QSYMM8             |S32      |QASYMM8        |
+     * |QASYMM8        |QASYMM8            |S32      |S32            |
+     * |QASYMM8        |QSYMM8_PER_CHANNEL |S32      |S32            |
+     * |QASYMM8        |QSYMM8             |S32      |S32            |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED     |S32      |QASYMM8_SIGNED |
+     * |QASYMM8_SIGNED |QSYMM8_PER_CHANNEL |S32      |QASYMM8_SIGNED |
+     * |QASYMM8_SIGNED |QSYMM8             |S32      |QASYMM8_SIGNED |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED     |S32      |S32            |
+     * |QASYMM8_SIGNED |QSYMM8_PER_CHANNEL |S32      |S32            |
+     * |QASYMM8_SIGNED |QSYMM8             |S32      |S32            |
+     *
+     * @note GEMMLowp:  low precision GEMM kernel. [A * B + C]
+     *  This kernel performs the following computations:
+     *
+     *  -# Convert a values from 8-bit quantized to int32 and add a_offset to each of them.
+     *  -# Convert b values from 8-bit quantized to int32 and add b_offset to each of them.
+     *  -# Compute the matrix product of the resulting a * b in int32.
+     *  -# Quantize to uint8 if gemm_info.gemmlowp_output_stage != NONE
+     *
+     * @param[in]  a         First input tensor  (Matrix A). Data type supported: QASYMM8/QASYMM8_SIGNED.
+     * @param[in]  b         Second input tensor (Matrix B). Data type supported: QASYMM8/QASYMM8_SIGNED/QSYMM8/QSYMM8_PER_CHANNEL
+     * @param[in]  c         Third input tensor  (Matrix C). It can be a nullptr. Data type supported: S32
+     * @param[out] output    Output tensor. Data type supported: S32 or QASYMM8/QASYMM8_SIGNED if gemm_info.gemmlowp_output_stage != NONE
+     * @param[in]  gemm_info (Optional) Specifies if the matrix A and/or matrix B have been reshaped and
+     *                       if the reshape of matrix B should be executed only for the first run
+     */
+    void configure(const ICLTensor *a, const ICLTensor *b, const ICLTensor *c, ICLTensor *output, const GEMMInfo &gemm_info = GEMMInfo());
     /** Initialise the kernel's inputs, output
      *
      * @note GEMMLowp:  low precision GEMM kernel. [A * B + C]
      *  This kernel performs the following computations:
      *
-     *  -# Convert a values from QASYMM8 to int32 and add a_offset to each of them.
-     *  -# Convert b values from QASYMM8 to int32 and add b_offset to each of them.
+     *  -# Convert a values from 8-bit quantized to int32 and add a_offset to each of them.
+     *  -# Convert b values from 8-bit quantized to int32 and add b_offset to each of them.
      *  -# Compute the matrix product of the resulting a * b in int32.
      *  -# Quantize to uint8 if gemm_info.gemmlowp_output_stage != NONE
      *
-     * @param[in]  a         First input tensor  (Matrix A). Data type supported: QASYMM8.
-     * @param[in]  b         Second input tensor (Matrix B). Data type supported: same as @p a
-     * @param[in]  c         Third input tensor  (Matrix C). It can be a nullptr. Data type supported: S32
-     * @param[out] output    Output tensor. Data type supported: S32 or QASYMM8 if gemm_info.gemmlowp_output_stage != NONE
-     * @param[in]  gemm_info (Optional) Specifies if the matrix A and/or matrix B have been reshaped and
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  a               First input tensor  (Matrix A). Data type supported: QASYMM8/QASYMM8_SIGNED.
+     * @param[in]  b               Second input tensor (Matrix B). Data type supported: same as @p a
+     * @param[in]  c               Third input tensor  (Matrix C). It can be a nullptr. Data type supported: S32
+     * @param[out] output          Output tensor. Data type supported: S32 or QASYMM8/QASYMM8_SIGNED if gemm_info.gemmlowp_output_stage != NONE
+     * @param[in]  gemm_info       (Optional) Specifies if the matrix A and/or matrix B have been reshaped and
      *                       if the reshape of matrix B should be executed only for the first run
      */
-    void configure(const ICLTensor *a, const ICLTensor *b, const ICLTensor *c, ICLTensor *output, const GEMMInfo &gemm_info = GEMMInfo());
+    void configure(const CLCompileContext &compile_context, const ICLTensor *a, const ICLTensor *b, const ICLTensor *c, ICLTensor *output, const GEMMInfo &gemm_info = GEMMInfo());
     /** Static function to check if given info will lead to a valid configuration of @ref CLGEMMLowpMatrixMultiplyCore
      *
-     * @param[in] a         First input tensor  (Matrix A). Data type supported: QASYMM8.
-     * @param[in] b         Second input tensor (Matrix B). Data type supported: same as @p a
-     * @param[in] c         Third input tensor  (Matrix C). It can be a nullptr. Data type supported: S32
-     * @param[in] output    Output tensor. Data type supported: S32 or QASYMM8 if gemm_info.gemmlowp_output_stage != NONE
+     * @param[in] a         First input tensor info (Matrix A). Data type supported: QASYMM8.
+     * @param[in] b         Second input tensor info (Matrix B). Data type supported: QASYMM8/QASYMM8_SIGNED/QSYMM8/QSYMM8_PER_CHANNEL
+     * @param[in] c         Third input tensor info (Matrix C). It can be a nullptr. Data type supported: S32
+     * @param[in] output    Output tensor info. Data type supported: S32 or QASYMM8/QASYMM8_SIGNED if gemm_info.gemmlowp_output_stage != NONE
      * @param[in] gemm_info (Optional) Specifies if the matrix A and/or matrix B have been reshaped and
      *                      if the reshape of matrix B should be executed only for the first run
      *
@@ -100,27 +128,8 @@ public:
     void prepare() override;
 
 private:
-    CLMemoryGroup                                 _memory_group;
-    CLGEMMLowpMatrixMultiplyKernel                _mm_midgard_kernel;
-    CLGEMMLowpMatrixMultiplyNativeKernel          _mm_native_kernel;
-    CLGEMMLowpMatrixMultiplyReshapedOnlyRHSKernel _mm_reshaped_only_rhs_kernel;
-    CLGEMMReshapeRHSMatrixKernel                  _mtx_b_reshape_kernel;
-    CLGEMMLowpMatrixAReductionKernel              _mtx_a_reduction_kernel;
-    CLGEMMLowpMatrixBReductionKernel              _mtx_b_reduction_kernel;
-    CLGEMMLowpOffsetContributionKernel            _offset_contribution_kernel;
-    CLGEMMLowpOffsetContributionOutputStageKernel _offset_contribution_output_stage_kernel;
-    CLTensor                                      _vector_sum_col;
-    CLTensor                                      _vector_sum_row;
-    CLTensor                                      _tmp_b;
-    CLTensor                                      _mm_result_s32;
-    const ICLTensor                              *_original_b;
-    int32_t                                       _a_offset;
-    int32_t                                       _b_offset;
-    bool                                          _is_gemm_reshaped;
-    bool                                          _is_midgard;
-    bool                                          _reshape_b_only_on_first_run;
-    bool                                          _is_prepared;
-    bool                                          _fuse_output_stage;
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 };
-}
-#endif /*__ARM_COMPUTE_CLGEMMLOWPMATRIXMULTIPLYCORE_H__ */
+} // namespace arm_compute
+#endif /*ARM_COMPUTE_CLGEMMLOWPMATRIXMULTIPLYCORE_H */

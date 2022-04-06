@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,14 +21,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CL_CROP_RESIZE_H__
-#define __ARM_COMPUTE_CL_CROP_RESIZE_H__
+#ifndef ARM_COMPUTE_CL_CROP_RESIZE_H
+#define ARM_COMPUTE_CL_CROP_RESIZE_H
 
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/CL/kernels/CLCopyKernel.h"
-#include "arm_compute/core/CL/kernels/CLCropKernel.h"
-#include "arm_compute/core/CL/kernels/CLMemsetKernel.h"
+
 #include "arm_compute/runtime/CL/CLTensor.h"
+#include "arm_compute/runtime/CL/functions/CLCopy.h"
+#include "arm_compute/runtime/CL/functions/CLCrop.h"
+#include "arm_compute/runtime/CL/functions/CLFill.h"
 #include "arm_compute/runtime/CL/functions/CLScale.h"
 
 #include <cstdint>
@@ -37,7 +38,9 @@
 namespace arm_compute
 {
 // Forward Declarations
+class CLCompileContext;
 class ITensor;
+class ITensorInfo;
 
 /** Function to perform cropping and resizing */
 class CLCropResize : public IFunction
@@ -54,24 +57,50 @@ public:
     /** Allow instances of this class to be moved */
     CLCropResize &operator=(CLCropResize &&) = default;
     /** Default destructor */
-    virtual ~CLCropResize() = default;
+    ~CLCropResize();
 
     /** Configure kernel
+     *
+     * Valid data layouts:
+     * - NHWC
+     *
+     * Valid data type configurations:
+     * |src0     |src1     |src2   |dst      |
+     * |:--------|:--------|:------|:--------|
+     * |All      |F32      |F32    |F32      |
      *
      * @note Supported tensor rank: up to 4
      * @note Box indices may be outside of the bounds, in which case @p extrapolation_value is used.
      * @note Start and end indices of boxes are inclusive.
      *
-     * @param[in]  input               Source tensor containing N batches of 3D images to be cropped. Data type supported: F32
-     * @param[in]  boxes               Tensor containing the boxes used to crop the images. Data type supported: F32
+     * @param[in]  input               Source tensor containing N batches of 3D images to be cropped. Data type supported: All
+     * @param[in]  boxes               Tensor containing the boxes used to crop the images. It has to be known before configuration. Data type supported: F32
      * @param[in]  box_ind             One dimensional tensor containing the batch index of the 3D image in @p input that the corresponding
-     *                                 box in @p boxes will be applied to. Data type supported: F32
+     *                                 box in @p boxes will be applied to. It has to be known before configuration. Data type supported: F32
      * @param[out] output              Destination tensor containing a cropped and resized image for each box in @p boxes. Data type supported: F32
      * @param[in]  crop_size           The dimensions that each cropped image will be resized to.
      * @param[in]  method              The policy to be used when resizing image. Default is bilinear.
      * @param[in]  extrapolation_value Value to be used for values outside of the image for cropping and resizing. Default is 0.
      */
     void configure(const ICLTensor *input, ICLTensor *boxes, ICLTensor *box_ind, ICLTensor *output, Coordinates2D crop_size,
+                   InterpolationPolicy method = InterpolationPolicy::BILINEAR, float extrapolation_value = 0);
+    /** Configure kernel
+     *
+     * @note Supported tensor rank: up to 4
+     * @note Box indices may be outside of the bounds, in which case @p extrapolation_value is used.
+     * @note Start and end indices of boxes are inclusive.
+     *
+     * @param[in]  compile_context     The compile context to be used.
+     * @param[in]  input               Source tensor containing N batches of 3D images to be cropped. Data type supported: All
+     * @param[in]  boxes               Tensor containing the boxes used to crop the images. It has to be known before configuration. Data type supported: F32
+     * @param[in]  box_ind             One dimensional tensor containing the batch index of the 3D image in @p input that the corresponding
+     *                                 box in @p boxes will be applied to. It has to be known before configuration. Data type supported: F32
+     * @param[out] output              Destination tensor containing a cropped and resized image for each box in @p boxes. Data type supported: F32
+     * @param[in]  crop_size           The dimensions that each cropped image will be resized to.
+     * @param[in]  method              The policy to be used when resizing image. Default is bilinear.
+     * @param[in]  extrapolation_value Value to be used for values outside of the image for cropping and resizing. Default is 0.
+     */
+    void configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *boxes, ICLTensor *box_ind, ICLTensor *output, Coordinates2D crop_size,
                    InterpolationPolicy method = InterpolationPolicy::BILINEAR, float extrapolation_value = 0);
 
     /** Static function to check if given info will lead to a valid configuration of @ref NESlice
@@ -80,7 +109,7 @@ public:
      * @note Box indices may be outside of the bounds, in which case @p extrapolation_value is used.
      * @note Start and end indices of boxes are inclusive.
      *
-     * @param[in] input               Source tensor info containing N batches of 3D images to be cropped. Data type supported: U16/S16/U32/S32/F16/F32
+     * @param[in] input               Source tensor info containing N batches of 3D images to be cropped. Data type supported: All
      * @param[in] boxes               Tensor info for the tensor containing the boxes used to crop the images. Data type supported: F32
      * @param[in] box_ind             Tensor info for the one dimensional tensor containing the batch index of the 3D image in @p input
      *                                that the corresponding box in @p boxes will be applied to. Data type supported: F32
@@ -105,10 +134,12 @@ public:
     InterpolationPolicy _method;
     float               _extrapolation_value;
 
-    std::vector<std::unique_ptr<CLScale>>      _scale;
-    std::vector<std::unique_ptr<CLCopyKernel>> _copy;
-    std::vector<std::unique_ptr<CLTensor>>     _crop_results;
-    std::vector<std::unique_ptr<CLTensor>>     _scaled_results;
+    std::vector<std::unique_ptr<CLScale>>  _scale;
+    std::vector<std::unique_ptr<CLCopy>>   _copy;
+    std::vector<std::unique_ptr<CLTensor>> _crop_results;
+    std::vector<std::unique_ptr<CLTensor>> _scaled_results;
+
+    std::vector<std::unique_ptr<IFunction>> _internal_functions;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CL_CROP_RESIZE_H__ */
+#endif /* ARM_COMPUTE_CL_CROP_RESIZE_H */

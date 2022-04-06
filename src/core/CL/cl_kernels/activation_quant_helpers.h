@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -41,12 +41,22 @@ inline TYPE relu_op(TYPE x)
 // Bounded RELU Activation
 inline TYPE brelu_op(TYPE x)
 {
-    return min((TYPE)A_VAL, max(CONST_0, x));
+    return min((TYPE)A_VAL, max((TYPE)CONST_0, x));
 }
 // Lower Upper Bounded RELU Activation
 inline TYPE lu_brelu_op(TYPE x)
 {
     return min(max(x, (TYPE)B_VAL), (TYPE)A_VAL);
+}
+// Hard Swish Activation
+inline TYPE hard_swish_op(TYPE x)
+{
+    return (x * ((min(max((TYPE)(x + (TYPE)3.f), (TYPE)0.f), (TYPE)6.f)) * (TYPE)0.166666667f));
+}
+
+inline TYPE identiy_op(TYPE x)
+{
+    return x;
 }
 
 #define ACTIVATION_OP2(op, x) op##_op(x)

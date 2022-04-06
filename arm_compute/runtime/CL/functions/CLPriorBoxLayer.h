@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,16 +21,19 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLPRIORBOXLAYER_H__
-#define __ARM_COMPUTE_CLPRIORBOXLAYER_H__
+#ifndef ARM_COMPUTE_CLPRIORBOXLAYER_H
+#define ARM_COMPUTE_CLPRIORBOXLAYER_H
 
-#include "arm_compute/core/CL/kernels/CLPriorBoxLayerKernel.h"
+#include "arm_compute/core/CL/OpenCL.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/CL/ICLSimpleFunction.h"
 
 namespace arm_compute
 {
+class CLCompileContext;
+class CLPriorBoxLayerKernel;
 class ICLTensor;
+class ITensorInfo;
 
 /** Basic function to run @ref CLPriorBoxLayerKernel. */
 class CLPriorBoxLayer : public ICLSimpleFunction
@@ -40,12 +43,30 @@ public:
     CLPriorBoxLayer();
     /** Set the input and output tensors.
      *
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src0     |src1     |dst      |
+     * |:--------|:--------|:--------|
+     * |F32      |F32      |F32      |
+     *
      * @param[in]  input1 First source tensor. Data types supported: F32. Data layouts supported: NCHW/NHWC.
      * @param[in]  input2 Second source tensor. Data types and layouts supported: same as @p input1
      * @param[out] output Destination tensor. Output dimensions are [W * H * num_priors * 4, 2]. Data types and layouts supported: same as @p input1
      * @param[in]  info   Prior box layer info.
      */
     void configure(const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output, const PriorBoxLayerInfo &info);
+    /** Set the input and output tensors.
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  input1          First source tensor. Data types supported: F32. Data layouts supported: NCHW/NHWC.
+     * @param[in]  input2          Second source tensor. Data types and layouts supported: same as @p input1
+     * @param[out] output          Destination tensor. Output dimensions are [W * H * num_priors * 4, 2]. Data types and layouts supported: same as @p input1
+     * @param[in]  info            Prior box layer info.
+     */
+    void configure(const CLCompileContext &compile_context, const ICLTensor *input1, const ICLTensor *input2, ICLTensor *output, const PriorBoxLayerInfo &info);
     /** Static function to check if given info will lead to a valid configuration of @ref CLPriorBoxLayer
      *
      * @param[in] input1 First source tensor info. Data types supported: F32. Data layouts supported: NCHW/NHWC.
@@ -63,4 +84,4 @@ private:
     cl::Buffer _aspect_ratios;
 };
 } // arm_compute
-#endif /* __ARM_COMPUTE_CLPRIORBOXLAYER_H__ */
+#endif /* ARM_COMPUTE_CLPRIORBOXLAYER_H */

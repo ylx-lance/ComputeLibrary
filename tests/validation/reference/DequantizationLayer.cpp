@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -36,37 +36,48 @@ namespace reference
 namespace
 {
 template <typename TOut>
-TOut dequantize(int8_t val, const UniformQuantizationInfo qinfo)
+TOut dequantize(int8_t val, const UniformQuantizationInfo qinfo, DataType dt)
 {
-    return static_cast<TOut>(dequantize_qsymm8(val, qinfo));
+    if(dt == DataType::QSYMM8 || dt == DataType::QSYMM8_PER_CHANNEL)
+    {
+        return static_cast<TOut>(dequantize_qsymm8(val, qinfo));
+    }
+    else
+    {
+        return static_cast<TOut>(dequantize_qasymm8_signed(val, qinfo));
+    }
 }
 template <typename TOut>
-TOut dequantize(uint8_t val, const UniformQuantizationInfo qinfo)
+TOut dequantize(uint8_t val, const UniformQuantizationInfo qinfo, DataType dt)
 {
+    ARM_COMPUTE_UNUSED(dt);
     return static_cast<TOut>(dequantize_qasymm8(val, qinfo));
 }
 template <typename TOut>
-TOut dequantize(int16_t val, const UniformQuantizationInfo qinfo)
+TOut dequantize(int16_t val, const UniformQuantizationInfo qinfo, DataType dt)
 {
+    ARM_COMPUTE_UNUSED(dt);
     return static_cast<TOut>(dequantize_qsymm16(val, qinfo));
 }
-
+} // namespace
 template <typename TOut, typename TIn>
-SimpleTensor<TOut> dequantization_layer_nchw(const SimpleTensor<TIn> &src)
+SimpleTensor<TOut> dequantization_layer(const SimpleTensor<TIn> &src)
 {
     const DataType src_data_type = src.data_type();
     const DataType dst_data_type = std::is_same<TOut, float>::value ? DataType::F32 : DataType::F16;
 
     SimpleTensor<TOut> dst{ src.shape(), dst_data_type };
 
-    if(src_data_type == DataType::QSYMM8_PER_CHANNEL)
+    if(is_data_type_quantized_per_channel(src_data_type))
     {
         const int WH = src.shape().x() * src.shape().y();
         const int C  = src.shape().z();
         const int N  = src.shape().total_size() / (WH * C);
 
         const std::vector<float> qscales = src.quantization_info().scale();
-
+#if defined(_OPENMP)
+        #pragma omp parallel for collapse(2)
+#endif /* _OPENMP */
         for(int n = 0; n < N; ++n)
         {
             for(int c = 0; c < C; ++c)
@@ -77,7 +88,7 @@ SimpleTensor<TOut> dequantization_layer_nchw(const SimpleTensor<TIn> &src)
                 // Dequantize slice
                 for(int s = 0; s < WH; ++s)
                 {
-                    dst[idx + s] = dequantize<TOut>(static_cast<TIn>(src[idx + s]), channel_qinfo);
+                    dst[idx + s] = dequantize<TOut>(static_cast<TIn>(src[idx + s]), channel_qinfo, src_data_type);
                 }
             }
         }
@@ -86,28 +97,16 @@ SimpleTensor<TOut> dequantization_layer_nchw(const SimpleTensor<TIn> &src)
     {
         const UniformQuantizationInfo &quantization_info = src.quantization_info().uniform();
         ARM_COMPUTE_ERROR_ON(quantization_info.offset != 0 && src_data_type == DataType::QSYMM8);
-
+#if defined(_OPENMP)
+        #pragma omp parallel for
+#endif /* _OPENMP */
         for(int i = 0; i < src.num_elements(); ++i)
         {
-            dst[i] = static_cast<TOut>(dequantize<TOut>(static_cast<TIn>(src[i]), quantization_info));
+            dst[i] = static_cast<TOut>(dequantize<TOut>(static_cast<TIn>(src[i]), quantization_info, src_data_type));
         }
     }
 
     return dst;
-}
-} // namespace
-template <typename TOut, typename TIn>
-SimpleTensor<TOut> dequantization_layer(const SimpleTensor<TIn> &src)
-{
-    if(src.data_layout() == DataLayout::NHWC && src.data_type() == DataType::QSYMM8_PER_CHANNEL)
-    {
-        SimpleTensor<TIn> src_nchw = reference::permute<TIn>(src, PermutationVector(1U, 2U, 0U));
-        return reference::permute<TOut>(dequantization_layer_nchw<TOut>(src_nchw), PermutationVector(2U, 0U, 1U));
-    }
-    else
-    {
-        return dequantization_layer_nchw<TOut>(src);
-    }
 }
 
 template SimpleTensor<half> dequantization_layer(const SimpleTensor<uint8_t> &src);

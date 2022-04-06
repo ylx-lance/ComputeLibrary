@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_DEPTH_CONVERT_H__
-#define __ARM_COMPUTE_TEST_DEPTH_CONVERT_H__
+#ifndef ARM_COMPUTE_TEST_DEPTH_CONVERT_H
+#define ARM_COMPUTE_TEST_DEPTH_CONVERT_H
 
 #include "tests/SimpleTensor.h"
 #include "tests/validation/Helpers.h"
@@ -38,10 +38,13 @@ namespace reference
 template < typename T1, typename T2, typename std::enable_if < std::is_integral<T1>::value &&!std::is_same<T1, T2>::value, int >::type = 0 >
 SimpleTensor<T2> depth_convert(const SimpleTensor<T1> &src, DataType dt_out, ConvertPolicy policy, uint32_t shift);
 
-template < typename T1, typename T2, typename std::enable_if < is_floating_point<T1>::value &&!std::is_same<T1, T2>::value, int >::type = 0 >
+template < typename T1, typename T2, typename std::enable_if < is_floating_point<T1>::value &&(!std::is_same<T1, T2>::value &&!std::is_same<T2, bfloat16>::value), int >::type = 0 >
+SimpleTensor<T2> depth_convert(const SimpleTensor<T1> &src, DataType dt_out, ConvertPolicy policy, uint32_t shift);
+
+template < typename T1, typename T2, typename std::enable_if < std::is_same<T1, bfloat16>::value || std::is_same<T2, bfloat16>::value, int >::type = 0 >
 SimpleTensor<T2> depth_convert(const SimpleTensor<T1> &src, DataType dt_out, ConvertPolicy policy, uint32_t shift);
 } // namespace reference
 } // namespace validation
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_DEPTH_CONVERT_H__ */
+#endif /* ARM_COMPUTE_TEST_DEPTH_CONVERT_H */

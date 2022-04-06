@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,22 +21,23 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NEREDUCTIONOPERATION_H__
-#define __ARM_COMPUTE_NEREDUCTIONOPERATION_H__
+#ifndef ARM_COMPUTE_NEREDUCTIONOPERATION_H
+#define ARM_COMPUTE_NEREDUCTIONOPERATION_H
 
 #include "arm_compute/runtime/IFunction.h"
 
-#include "arm_compute/core/NEON/kernels/NEFillBorderKernel.h"
-#include "arm_compute/core/NEON/kernels/NEReductionOperationKernel.h"
-#include "arm_compute/core/Types.h"
+#include "arm_compute/runtime/NEON/functions/NEReshapeLayer.h"
+#include "arm_compute/runtime/Tensor.h"
+#include <memory>
 
 namespace arm_compute
 {
 class ITensor;
+class NEReductionOperationKernel;
 
-/** Basic function to simulate a reduction operation. This function calls the following NEON kernels:
+/** Basic function to simulate a reduction operation. This function calls the following kernels:
  *
- * -# @ref NEFillBorderKernel
+ * -# @ref NEReshapeLayer
  * -# @ref NEReductionOperationKernel
  *
  */
@@ -44,35 +45,62 @@ class NEReductionOperation : public IFunction
 {
 public:
     /** Default constructor */
-    NEReductionOperation();
+    NEReductionOperation(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEReductionOperation(const NEReductionOperation &) = delete;
+    /** Default move constructor */
+    NEReductionOperation(NEReductionOperation &&) = default;
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEReductionOperation &operator=(const NEReductionOperation &) = delete;
+    /** Default move assignment operator */
+    NEReductionOperation &operator=(NEReductionOperation &&) = default;
+    /** Default destructor */
+    ~NEReductionOperation();
     /** Set the input and output tensors.
      *
-     * @param[in]  input  Source tensor. Data type supported: QASYMM8/F16/F32. Data layouts supported: NCHW. (Written to only for border_size != 0)
-     * @param[out] output Destination tensor. Data types and data layouts supported: same as @p input.
-     * @param[in]  axis   Dimension along which to reduce. Supported reduction axis : 0
-     * @param[in]  op     Reduction operation to perform.
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |QASYMM8        |QASYMM8        |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED |
+     * |F16            |F16            |
+     * |F32            |F32            |
+     * |S32            |S32            |
+     *
+     * @param[in, out] input     Source tensor. Data type supported: QASYMM8_SIGNED/QASYMM8/F16/F32/S32. (Written to only for border_size != 0)
+     * @param[out]     output    Destination tensor. Data types and data layouts supported: same as @p input.
+     * @param[in]      axis      Dimension along which to reduce. Supported reduction axis : 0
+     * @param[in]      op        Reduction operation to perform.
+     * @param[in]      keep_dims (Optional) Whether to keep the reduced dimension after the operation. Defaults to true.
      */
-    void configure(ITensor *input, ITensor *output, unsigned int axis, ReductionOperation op);
+    void configure(ITensor *input, ITensor *output, unsigned int axis, ReductionOperation op, bool keep_dims = true);
 
     /** Static function to check if given info will lead to a valid configuration of @ref NEReductionOperation.
      *
-     * @param[in] input  Source tensor info. Data type supported: QASYMM8/F16/F32. Data layouts supported: NCHW. (Written to only for border_size != 0)
-     * @param[in] output Destination tensor info. Data types and data layouts supported: same as @p input.
-     * @param[in] axis   Dimension along which to reduce. Supported reduction axis : 0
-     * @param[in] op     Reduction operation to perform.
+     * @param[in] input     Source tensor info. Data type supported: QASYMM8_SIGNED/QASYMM8/F16/F32/S32.
+     * @param[in] output    Destination tensor info. Data types and data layouts supported: same as @p input.
+     * @param[in] axis      Dimension along which to reduce. Supported reduction axis : 0
+     * @param[in] op        Reduction operation to perform.
+     * @param[in] keep_dims (Optional) Whether to keep the reduced dimension after the operation. Defaults to true.
      *
      * @return a status
      */
-    static Status validate(const ITensorInfo *input, const ITensorInfo *output, unsigned int axis, ReductionOperation op);
+    static Status validate(const ITensorInfo *input, const ITensorInfo *output, unsigned int axis, ReductionOperation op, bool keep_dims = true);
 
     // Inherited methods overridden:
     void run() override;
 
 private:
-    NEReductionOperationKernel _reduction_kernel;
-    NEFillBorderKernel         _fill_border_kernel;
-    size_t                     _window_split;
-    int                        _reduction_axis;
+    MemoryGroup                                 _memory_group;
+    std::unique_ptr<NEReductionOperationKernel> _reduction_kernel;
+    NEReshapeLayer                              _reshape;
+    Tensor                                      _output_internal;
+    size_t                                      _window_split;
+    int                                         _reduction_axis;
+    bool                                        _is_reshape_required;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_NEREDUCTIONOPERATION_H__ */
+#endif /* ARM_COMPUTE_NEREDUCTIONOPERATION_H */

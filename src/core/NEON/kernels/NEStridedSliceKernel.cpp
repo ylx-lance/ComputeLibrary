@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,18 +21,18 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/NEON/kernels/NEStridedSliceKernel.h"
+#include "src/core/NEON/kernels/NEStridedSliceKernel.h"
 
-#include "arm_compute/core/CPP/Validate.h"
-#include "arm_compute/core/IAccessWindow.h"
 #include "arm_compute/core/ITensor.h"
 #include "arm_compute/core/TensorInfo.h"
-#include "arm_compute/core/Window.h"
-
 #include "arm_compute/core/Types.h"
-#include "arm_compute/core/utils/helpers/bit_ops.h"
+#include "arm_compute/core/Window.h"
 #include "arm_compute/core/utils/helpers/tensor_transform.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/CPP/Validate.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+#include "src/core/utils/helpers/bit_ops.h"
 
 namespace arm_compute
 {
@@ -43,11 +43,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output,
                           int32_t begin_mask, int32_t end_mask, int32_t shrink_axis_mask)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(input, 1,
-                                                         DataType::U8, DataType::S8, DataType::QASYMM8,
-                                                         DataType::U16, DataType::S16, DataType::QSYMM16,
-                                                         DataType::U32, DataType::S32,
-                                                         DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
 
     ARM_COMPUTE_RETURN_ERROR_ON(input->tensor_shape().num_dimensions() > 4);
     ARM_COMPUTE_RETURN_ERROR_ON(starts.num_dimensions() > input->num_dimensions());
@@ -75,7 +71,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output,
     return Status{};
 }
 
-std::pair<Status, Window> validate_and_configure_window(ITensorInfo *input, ITensorInfo *output,
+std::pair<Status, Window> validate_and_configure_window(const ITensorInfo *input, ITensorInfo *output,
                                                         const Coordinates &starts, const Coordinates &ends, const BiStrides &strides,
                                                         int32_t begin_mask, int32_t end_mask, int32_t shrink_axis_mask)
 {
@@ -87,7 +83,6 @@ std::pair<Status, Window> validate_and_configure_window(ITensorInfo *input, ITen
 
     // Create window
     Window win = calculate_max_window(*output, Steps());
-    output->set_valid_region(ValidRegion(Coordinates(), output->tensor_shape()));
 
     return std::make_pair(Status{}, win);
 }
@@ -131,22 +126,20 @@ void strided_slice_generic(const ITensor *input, ITensor *output,
 } // namespace
 
 NEStridedSliceKernel::NEStridedSliceKernel()
-    : _input(nullptr), _output(nullptr), _starts_abs(), _final_strides(), _shrink_mask()
+    : _starts_abs(), _final_strides(), _shrink_mask()
 {
 }
 
-void NEStridedSliceKernel::configure(const ITensor *input, ITensor *output,
+void NEStridedSliceKernel::configure(const ITensorInfo *input, ITensorInfo *output,
                                      const Coordinates &starts, const Coordinates &ends, const BiStrides &strides,
                                      int32_t begin_mask, int32_t end_mask, int32_t shrink_axis_mask)
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, output);
-    ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input->info(), output->info(), starts, ends, strides, begin_mask, end_mask, shrink_axis_mask));
+    ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(input, output, starts, ends, strides, begin_mask, end_mask, shrink_axis_mask));
 
-    _input       = input;
-    _output      = output;
     _shrink_mask = shrink_axis_mask;
 
-    const TensorShape &input_shape = input->info()->tensor_shape();
+    const TensorShape &input_shape = input->tensor_shape();
 
     Coordinates ends_abs;
     std::tie(_starts_abs, ends_abs, _final_strides) = arm_compute::helpers::tensor_transform::calculate_strided_slice_coords(
@@ -155,7 +148,7 @@ void NEStridedSliceKernel::configure(const ITensor *input, ITensor *output,
                                                           begin_mask, end_mask, shrink_axis_mask);
 
     // Configure kernel window
-    auto win_config = validate_and_configure_window(input->info(), output->info(), starts, ends, strides, begin_mask, end_mask, shrink_axis_mask);
+    auto win_config = validate_and_configure_window(input, output, starts, ends, strides, begin_mask, end_mask, shrink_axis_mask);
     ARM_COMPUTE_ERROR_THROW_ON(win_config.first);
     INEKernel::configure(win_config.second);
 }
@@ -172,13 +165,15 @@ Status NEStridedSliceKernel::validate(const ITensorInfo *input, const ITensorInf
     return Status{};
 }
 
-void NEStridedSliceKernel::run(const Window &window, const ThreadInfo &info)
+void NEStridedSliceKernel::run_op(ITensorPack &tensors, const Window &window, const ThreadInfo &info)
 {
     ARM_COMPUTE_UNUSED(info);
     ARM_COMPUTE_ERROR_ON_UNCONFIGURED_KERNEL(this);
     ARM_COMPUTE_ERROR_ON_INVALID_SUBWINDOW(INEKernel::window(), window);
 
     // Dispatch kernel
-    strided_slice_generic(_input, _output, _starts_abs, _final_strides, _shrink_mask, window);
+    strided_slice_generic(tensors.get_const_tensor(TensorType::ACL_SRC_0),
+                          tensors.get_tensor(TensorType::ACL_DST),
+                          _starts_abs, _final_strides, _shrink_mask, window);
 }
 } // namespace arm_compute

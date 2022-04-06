@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 ARM Limited.
+ * Copyright (c) 2017-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_STRIDES_H__
-#define __ARM_COMPUTE_STRIDES_H__
+#ifndef ARM_COMPUTE_STRIDES_H
+#define ARM_COMPUTE_STRIDES_H
 
 #include "arm_compute/core/Dimensions.h"
 #include "arm_compute/core/Error.h"
@@ -34,7 +34,7 @@
 namespace arm_compute
 {
 /** Strides of an item in bytes */
-class Strides : public Dimensions<size_t>
+class Strides : public Dimensions<uint32_t>
 {
 public:
     /** Constructor to initialize the strides.
@@ -58,4 +58,4 @@ public:
     ~Strides() = default;
 };
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_STRIDES_H__*/
+#endif /*ARM_COMPUTE_STRIDES_H*/

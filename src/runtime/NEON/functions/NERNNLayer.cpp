@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -30,11 +30,14 @@
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
 #include "arm_compute/runtime/NEON/NEScheduler.h"
+#include "src/common/utils/Log.h"
 
 namespace arm_compute
 {
+NERNNLayer::~NERNNLayer() = default;
+
 NERNNLayer::NERNNLayer(std::shared_ptr<IMemoryManager> memory_manager)
-    : _memory_group(std::move(memory_manager)), _gemm_state_f(), _add_kernel(), _activation_kernel(), _fully_connected_kernel(), _copy_kernel(), _fully_connected_out(), _gemm_output(), _add_output(),
+    : _memory_group(std::move(memory_manager)), _gemm_state_f(), _add_f(), _activation(), _fully_connected(memory_manager), _copy_f(), _fully_connected_out(), _gemm_output(), _add_output(),
       _is_prepared(false)
 {
 }
@@ -43,10 +46,12 @@ Status NERNNLayer::validate(const ITensorInfo *input, const ITensorInfo *weights
                             const ITensorInfo *output, const ActivationLayerInfo &info)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, weights, recurrent_weights, bias, hidden_state, output);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_NOT_IN(input, DataType::F16, DataType::F32);
 
     const int idx_width  = get_data_layout_dimension_index(input->data_layout(), DataLayoutDimension::WIDTH);
     const int idx_height = get_data_layout_dimension_index(input->data_layout(), DataLayoutDimension::HEIGHT);
     ARM_COMPUTE_RETURN_ERROR_ON(input->dimension(idx_width) != weights->dimension(idx_width));
+    ARM_COMPUTE_RETURN_ERROR_ON(input->num_dimensions() != 2);
     ARM_COMPUTE_RETURN_ERROR_ON(weights->dimension(idx_height) != recurrent_weights->dimension(idx_width));
     ARM_COMPUTE_RETURN_ERROR_ON(recurrent_weights->dimension(idx_width) != recurrent_weights->dimension(idx_height));
     ARM_COMPUTE_RETURN_ERROR_ON(bias->num_dimensions() != 1);
@@ -58,8 +63,8 @@ Status NERNNLayer::validate(const ITensorInfo *input, const ITensorInfo *weights
     auto shape_info = TensorInfo(misc::shape_calculator::compute_rnn_shape(recurrent_weights, hidden_state->dimension(idx_height)), 1, input->data_type());
 
     ARM_COMPUTE_RETURN_ON_ERROR(NEFullyConnectedLayer::validate(input, weights, bias, &shape_info));
-    ARM_COMPUTE_RETURN_ON_ERROR(NEArithmeticAdditionKernel::validate(&shape_info, &shape_info, &shape_info, ConvertPolicy::SATURATE));
-    ARM_COMPUTE_RETURN_ON_ERROR(NEActivationLayerKernel::validate(&shape_info, &shape_info, info));
+    ARM_COMPUTE_RETURN_ON_ERROR(NEArithmeticAddition::validate(&shape_info, &shape_info, &shape_info, ConvertPolicy::SATURATE));
+    ARM_COMPUTE_RETURN_ON_ERROR(NEActivationLayer::validate(&shape_info, &shape_info, info));
 
     return Status{};
 }
@@ -69,6 +74,7 @@ void NERNNLayer::configure(const ITensor *input, const ITensor *weights, const I
 {
     ARM_COMPUTE_ERROR_ON_NULLPTR(input, weights, recurrent_weights, bias, hidden_state, output);
     ARM_COMPUTE_ERROR_THROW_ON(NERNNLayer::validate(input->info(), weights->info(), recurrent_weights->info(), bias->info(), hidden_state->info(), output->info(), info));
+    ARM_COMPUTE_LOG_PARAMS(input, weights, recurrent_weights, bias, hidden_state, output, info);
 
     const int   idx_height = get_data_layout_dimension_index(input->info()->data_layout(), DataLayoutDimension::HEIGHT);
     TensorShape shape      = misc::shape_calculator::compute_rnn_shape(recurrent_weights->info(), hidden_state->info()->dimension(idx_height));
@@ -81,7 +87,7 @@ void NERNNLayer::configure(const ITensor *input, const ITensor *weights, const I
 
     // Manage intermediate buffers and configure
     _memory_group.manage(&_fully_connected_out);
-    _fully_connected_kernel.configure(input, weights, bias, &_fully_connected_out);
+    _fully_connected.configure(input, weights, bias, &_fully_connected_out);
 
     _memory_group.manage(&_gemm_output);
     _gemm_state_f.configure(hidden_state, recurrent_weights, nullptr, &_gemm_output, 1.f, 0.f);
@@ -89,15 +95,15 @@ void NERNNLayer::configure(const ITensor *input, const ITensor *weights, const I
     _add_output.allocator()->init(TensorInfo(shape, 1, input->info()->data_type()));
     _memory_group.manage(&_add_output);
 
-    _add_kernel.configure(&_fully_connected_out, &_gemm_output, &_add_output, ConvertPolicy::SATURATE);
+    _add_f.configure(&_fully_connected_out, &_gemm_output, &_add_output, ConvertPolicy::SATURATE);
 
     _fully_connected_out.allocator()->allocate();
     _gemm_output.allocator()->allocate();
 
-    _activation_kernel.configure(&_add_output, hidden_state, info);
+    _activation.configure(&_add_output, hidden_state, info);
     _add_output.allocator()->allocate();
 
-    _copy_kernel.configure(hidden_state, output);
+    _copy_f.configure(hidden_state, output);
 }
 
 void NERNNLayer::run()
@@ -106,22 +112,22 @@ void NERNNLayer::run()
 
     MemoryGroupResourceScope scope_mg(_memory_group);
 
-    _fully_connected_kernel.run();
+    _fully_connected.run();
 
     _gemm_state_f.run();
 
-    NEScheduler::get().schedule(&_add_kernel, Window::DimY);
-    NEScheduler::get().schedule(&_activation_kernel, Window::DimY);
+    _add_f.run();
+    _activation.run();
 
     // copy hidden out to output
-    NEScheduler::get().schedule(&_copy_kernel, Window::DimY);
+    _copy_f.run();
 }
 
 void NERNNLayer::prepare()
 {
     if(!_is_prepared)
     {
-        _fully_connected_kernel.prepare();
+        _fully_connected.prepare();
         _gemm_state_f.prepare();
 
         _is_prepared = true;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,12 +21,12 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_TENSOR_DESCRIPTOR_H__
-#define __ARM_COMPUTE_GRAPH_TENSOR_DESCRIPTOR_H__
+#ifndef ARM_COMPUTE_GRAPH_TENSOR_DESCRIPTOR_H
+#define ARM_COMPUTE_GRAPH_TENSOR_DESCRIPTOR_H
 
 #include "arm_compute/graph/Types.h"
 
-#include "arm_compute/core/utils/misc/ICloneable.h"
+#include "support/ICloneable.h"
 
 #include <memory>
 
@@ -103,7 +103,7 @@ struct TensorDescriptor final : public misc::ICloneable<TensorDescriptor>
     // Inherited methods overridden:
     std::unique_ptr<TensorDescriptor> clone() const override
     {
-        return support::cpp14::make_unique<TensorDescriptor>(*this);
+        return std::make_unique<TensorDescriptor>(*this);
     }
 
     TensorShape      shape{};                        /**< Tensor shape */
@@ -114,4 +114,4 @@ struct TensorDescriptor final : public misc::ICloneable<TensorDescriptor>
 };
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_TENSOR_DESCRIPTOR_H__ */
+#endif /* ARM_COMPUTE_GRAPH_TENSOR_DESCRIPTOR_H */

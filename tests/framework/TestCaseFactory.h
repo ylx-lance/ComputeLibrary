@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,7 +26,6 @@
 
 #include "DatasetModes.h"
 #include "TestCase.h"
-#include "support/ToolchainSupport.h"
 
 #include <memory>
 #include <string>
@@ -183,7 +182,7 @@ inline ::std::ostream &operator<<(::std::ostream &stream, TestCaseFactory::Statu
 template <typename T>
 inline std::unique_ptr<TestCase> SimpleTestCaseFactory<T>::make() const
 {
-    return support::cpp14::make_unique<T>();
+    return std::make_unique<T>();
 }
 
 template <typename T, typename D>
@@ -195,7 +194,7 @@ inline DataTestCaseFactory<T, D>::DataTestCaseFactory(std::string suite_name, st
 template <typename T, typename D>
 inline std::unique_ptr<TestCase> DataTestCaseFactory<T, D>::make() const
 {
-    return support::cpp14::make_unique<T>(_data);
+    return std::make_unique<T>(_data);
 }
 } // namespace framework
 } // namespace test

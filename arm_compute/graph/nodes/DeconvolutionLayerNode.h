@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,10 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_DECONVOLUTION_LAYER_NODE_H__
-#define __ARM_COMPUTE_GRAPH_DECONVOLUTION_LAYER_NODE_H__
+#ifndef ARM_COMPUTE_GRAPH_DECONVOLUTION_LAYER_NODE_H
+#define ARM_COMPUTE_GRAPH_DECONVOLUTION_LAYER_NODE_H
 
 #include "arm_compute/graph/INode.h"
+#include "arm_compute/graph/LayerDescriptors.h"
 
 namespace arm_compute
 {
@@ -36,9 +37,9 @@ class DeconvolutionLayerNode final : public INode
 public:
     /** Constructor
      *
-     * @param[in] info DeConvolution layer attributes
+     * @param[in] descriptor Contains information used by this layer described in @ref descriptors::DeconvolutionLayerDescriptor
      */
-    DeconvolutionLayerNode(PadStrideInfo info);
+    DeconvolutionLayerNode(const descriptors::DeconvolutionLayerDescriptor &descriptor);
     /** Deconvolution metadata accessor
      *
      * @return Deconvolution information
@@ -63,8 +64,8 @@ public:
     void accept(INodeVisitor &v) override;
 
 private:
-    PadStrideInfo _info;
+    descriptors::DeconvolutionLayerDescriptor descriptor;
 };
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_DECONVOLUTION_LAYER_NODE_H__ */
+#endif /* ARM_COMPUTE_GRAPH_DECONVOLUTION_LAYER_NODE_H */

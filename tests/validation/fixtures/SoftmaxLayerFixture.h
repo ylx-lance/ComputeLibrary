@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -42,7 +42,7 @@ namespace test
 {
 namespace validation
 {
-template <typename TensorType, typename AccessorType, typename FunctionType, typename T>
+template <typename TensorType, typename AccessorType, typename FunctionType, typename T, bool IS_LOG = false>
 class SoftmaxValidationGenericFixture : public framework::Fixture
 {
 public:
@@ -51,46 +51,55 @@ public:
     {
         _quantization_info = quantization_info;
 
-        _target    = compute_target(shape, data_type, quantization_info, beta, axis);
         _reference = compute_reference(shape, data_type, quantization_info, beta, axis);
+        _target    = compute_target(shape, data_type, quantization_info, beta, axis);
     }
 
 protected:
     template <typename U>
     void fill(U &&tensor)
     {
-        if(!is_data_type_quantized(tensor.data_type()))
+        if(tensor.data_type() == DataType::F32)
         {
-            std::uniform_real_distribution<> distribution(-1000.f, 1000.f);
+            std::uniform_real_distribution<float> distribution(-10.0f, 10.0f);
             library->fill(tensor, distribution, 0);
         }
-        else // data type is quantized_asymmetric
+        else if(tensor.data_type() == DataType::F16)
+        {
+            arm_compute::utils::uniform_real_distribution_16bit<half> distribution{ -10.0f, 10.0f };
+            library->fill(tensor, distribution, 0);
+        }
+        else if(!is_data_type_quantized(tensor.data_type()))
         {
             std::uniform_int_distribution<> distribution(0, 100);
             library->fill(tensor, distribution, 0);
         }
+        else
+        {
+            library->fill_tensor_uniform(tensor, 0);
+        }
     }
 
     TensorType compute_target(const TensorShape &shape, DataType data_type,
-                              QuantizationInfo quantization_info, float beta, size_t axis)
+                              QuantizationInfo quantization_info, float beta, int32_t axis)
     {
         // Create tensors
         TensorType src = create_tensor<TensorType>(shape, data_type, 1, quantization_info);
-        TensorType dst = create_tensor<TensorType>(shape, data_type, 1, QuantizationInfo(1.f / 256, 0));
+        TensorType dst = create_tensor<TensorType>(shape, data_type, 1, get_softmax_output_quantization_info(data_type, IS_LOG));
 
         // Create and configure function
         FunctionType smx_layer;
         smx_layer.configure(&src, &dst, beta, axis);
 
-        ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(dst.info()->is_resizable());
 
         // Allocate tensors
         src.allocator()->allocate();
         dst.allocator()->allocate();
 
-        ARM_COMPUTE_EXPECT(!src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(!src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!dst.info()->is_resizable());
 
         // Fill tensors
         fill(AccessorType(src));
@@ -102,7 +111,7 @@ protected:
     }
 
     SimpleTensor<T> compute_reference(const TensorShape &shape, DataType data_type,
-                                      QuantizationInfo quantization_info, float beta, size_t axis)
+                                      QuantizationInfo quantization_info, float beta, int32_t axis)
     {
         // Create reference
         SimpleTensor<T> src{ shape, data_type, 1, quantization_info };
@@ -110,7 +119,7 @@ protected:
         // Fill reference
         fill(src);
 
-        return reference::softmax_layer<T>(src, beta, axis);
+        return reference::softmax_layer<T>(src, beta, axis, IS_LOG);
     }
 
     TensorType       _target{};
@@ -118,35 +127,36 @@ protected:
     QuantizationInfo _quantization_info{};
 };
 
-template <typename TensorType, typename AccessorType, typename FunctionType, typename T>
-class SoftmaxValidationFixture : public SoftmaxValidationGenericFixture<TensorType, AccessorType, FunctionType, T>
+template <typename TensorType, typename AccessorType, typename FunctionType, typename T, bool IS_LOG = false>
+class SoftmaxValidationFixture : public SoftmaxValidationGenericFixture<TensorType, AccessorType, FunctionType, T, IS_LOG>
 {
 public:
     template <typename...>
     void setup(TensorShape shape, DataType data_type, float beta, size_t axis)
     {
-        SoftmaxValidationGenericFixture<TensorType, AccessorType, FunctionType, T>::setup(shape,
-                                                                                          data_type,
-                                                                                          QuantizationInfo(),
-                                                                                          beta,
-                                                                                          axis);
+        SoftmaxValidationGenericFixture<TensorType, AccessorType, FunctionType, T, IS_LOG>::setup(shape,
+                                                                                                  data_type,
+                                                                                                  QuantizationInfo(),
+                                                                                                  beta,
+                                                                                                  axis);
     }
 };
 
-template <typename TensorType, typename AccessorType, typename FunctionType, typename T>
-class SoftmaxValidationQuantizedFixture : public SoftmaxValidationGenericFixture<TensorType, AccessorType, FunctionType, T>
+template <typename TensorType, typename AccessorType, typename FunctionType, typename T, bool IS_LOG = false>
+class SoftmaxValidationQuantizedFixture : public SoftmaxValidationGenericFixture<TensorType, AccessorType, FunctionType, T, IS_LOG>
 {
 public:
     template <typename...>
     void setup(TensorShape shape, DataType data_type, QuantizationInfo quantization_info, float beta, size_t axis)
     {
-        SoftmaxValidationGenericFixture<TensorType, AccessorType, FunctionType, T>::setup(shape,
-                                                                                          data_type,
-                                                                                          quantization_info,
-                                                                                          beta,
-                                                                                          axis);
+        SoftmaxValidationGenericFixture<TensorType, AccessorType, FunctionType, T, IS_LOG>::setup(shape,
+                                                                                                  data_type,
+                                                                                                  quantization_info,
+                                                                                                  beta,
+                                                                                                  axis);
     }
 };
+
 } // namespace validation
 } // namespace test
 } // namespace arm_compute

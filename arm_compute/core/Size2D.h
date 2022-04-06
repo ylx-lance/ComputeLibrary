@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 ARM Limited.
+ * Copyright (c) 2016-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,11 +21,11 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_SIZE2D_H__
-#define __ARM_COMPUTE_SIZE2D_H__
+#ifndef ARM_COMPUTE_SIZE2D_H
+#define ARM_COMPUTE_SIZE2D_H
 
-#include "support/ToolchainSupport.h"
 #include <cstddef>
+#include <string>
 #include <utility>
 
 namespace arm_compute
@@ -41,8 +41,9 @@ public:
      * @param[in] w Width of the image or rectangle
      * @param[in] h Height of the image or rectangle
      */
-    Size2D(size_t w, size_t h)
-        : width(w), height(h)
+    Size2D(size_t w, size_t h) noexcept
+        : width(w),
+          height(h)
     {
     }
     /** The area of the image or rectangle calculated as (width * height)
@@ -65,10 +66,7 @@ public:
         return !(*this == other);
     }
 
-    std::string to_string() const
-    {
-        return support::cpp11::to_string(width) + std::string("x") + support::cpp11::to_string(height);
-    }
+    std::string to_string() const;
 
     /** Semantic accessor for width as x.
      *
@@ -93,4 +91,4 @@ public:
     size_t height = {}; /**< Height of the image region or rectangle */
 };
 }
-#endif /*__ARM_COMPUTE_SIZE2D_H__ */
+#endif /*ARM_COMPUTE_SIZE2D_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,16 +21,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/NEON/kernels/NEBatchToSpaceLayerKernel.h"
+#include "src/core/NEON/kernels/NEBatchToSpaceLayerKernel.h"
 
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/ITensor.h"
-#include "arm_compute/core/NEON/wrapper/wrapper.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
-#include <arm_neon.h>
-#include <cstdint>
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
 
 using namespace arm_compute::misc::shape_calculator;
 
@@ -43,6 +42,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *block_inf
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, block_info, output);
     ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_CHANNEL_NOT_IN(block_info, 1, DataType::S32);
     ARM_COMPUTE_RETURN_ERROR_ON(input->num_dimensions() > 4);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
 
     // Validate output if initialized
     if(output->total_size() != 0)
@@ -81,7 +81,7 @@ Status validate_arguments_static(const ITensorInfo *input, const int block_shape
 } // namespace
 
 NEBatchToSpaceLayerKernel::NEBatchToSpaceLayerKernel()
-    : _input(nullptr), _block_shape(nullptr), _output(nullptr), _block_shape_x(), _block_shape_y()
+    : _input(nullptr), _block_shape(nullptr), _output(nullptr), _data_layout(DataLayout::UNKNOWN), _block_shape_x(), _block_shape_y()
 {
 }
 
@@ -93,6 +93,7 @@ void NEBatchToSpaceLayerKernel::configure(const ITensor *input, const ITensor *b
     _input       = input;
     _block_shape = block_shape;
     _output      = output;
+    _data_layout = input->info()->data_layout();
 
     // Configure kernel window
     Window win = calculate_max_window(*input->info(), Steps());
@@ -113,6 +114,7 @@ void NEBatchToSpaceLayerKernel::configure(const ITensor *input, const int32_t bl
     _output        = output;
     _block_shape_x = block_shape_x;
     _block_shape_y = block_shape_y;
+    _data_layout   = input->info()->data_layout();
 
     // Configure kernel window
     Window win = calculate_max_window(*input->info(), Steps());
@@ -161,7 +163,7 @@ void NEBatchToSpaceLayerKernel::run(const Window &window, const ThreadInfo &info
 
     int batch_id = 0;
     // Main loop for NCHW and NHWC
-    if(_input->info()->data_layout() == DataLayout::NCHW)
+    if(_data_layout == DataLayout::NCHW)
     {
         do
         {

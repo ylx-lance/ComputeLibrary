@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,37 +21,26 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NEGEMM_H__
-#define __ARM_COMPUTE_NEGEMM_H__
+#ifndef ARM_COMPUTE_NEGEMM_H
+#define ARM_COMPUTE_NEGEMM_H
 
-#include "arm_compute/core/NEON/kernels/NEFillBorderKernel.h"
-#include "arm_compute/core/NEON/kernels/NEGEMMInterleave4x4Kernel.h"
-#include "arm_compute/core/NEON/kernels/NEGEMMMatrixAdditionKernel.h"
-#include "arm_compute/core/NEON/kernels/NEGEMMMatrixMultiplyKernel.h"
-#include "arm_compute/core/NEON/kernels/NEGEMMTranspose1xWKernel.h"
 #include "arm_compute/runtime/IFunction.h"
 #include "arm_compute/runtime/IMemoryManager.h"
-#include "arm_compute/runtime/MemoryGroup.h"
-#include "arm_compute/runtime/NEON/functions/NEGEMMAssemblyDispatch.h"
-#include "arm_compute/runtime/Tensor.h"
+#include "arm_compute/runtime/IWeightsManager.h"
 
 #include <memory>
 
 namespace arm_compute
 {
-/** Basic function to execute GEMM on NEON. This function calls the following NEON kernels:
+/** Basic function to execute GEMM. This function calls the following kernels:
  *
- *  -# @ref NEGEMMInterleave4x4Kernel (if the output tensor is a matrix)
- *  -# @ref NEGEMMTranspose1xWKernel (if the output tensor is a matrix)
- *  -# @ref NEGEMMMatrixMultiplyKernel
- *  -# @ref NEGEMMMatrixAdditionKernel (if c != nullptr and beta != 0.0)
- *
+ *  -# @ref cpu::CpuGemm
  */
 class NEGEMM : public IFunction
 {
 public:
     /** Constructor */
-    NEGEMM(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    NEGEMM(std::shared_ptr<IMemoryManager> memory_manager = nullptr, IWeightsManager *weights_manager = nullptr);
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     NEGEMM(const NEGEMM &) = delete;
     /** Default move constructor */
@@ -60,12 +49,24 @@ public:
     NEGEMM &operator=(const NEGEMM &) = delete;
     /** Default move assignment operator */
     NEGEMM &operator=(NEGEMM &&) = default;
+    /** Default destructor */
+    ~NEGEMM();
     /** Initialise the kernel's inputs, output
+     *
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src0         |src1        |src2      |dst            |
+     * |:------------|:-----------|:---------|:--------------|
+     * |F32          |F32         |F32       |F32            |
+     * |F16          |F16         |F16       |F16            |
+     * |BFLOAT16     |BFLOAT16    |BFLOAT16  |BFLOAT16       |
      *
      * @note GEMM: General Matrix Multiply - [alpha * A * B + beta * C].
      * @note GEMM: The tensors a, b, c, d must have the same data type. You should not mix data types when calling this function.
      *
-     * @param[in]  a         First input tensor  (Matrix A or Vector A). Data type supported: F16/F32
+     * @param[in]  a         First input tensor  (Matrix A or Vector A). Data type supported: BFLOAT16/F16/F32
      * @param[in]  b         Second input tensor (Matrix B). Data type supported: same as @p a
      * @param[in]  c         Third input tensor  (Matrix C). It can be a nullptr if just the multiplication between @p a and @p b is needed. Data type supported: same as @p a
      * @param[out] d         Output tensor. Data type supported: same as @p a
@@ -77,14 +78,7 @@ public:
     void configure(const ITensor *a, const ITensor *b, const ITensor *c, ITensor *d, float alpha, float beta, const GEMMInfo &gemm_info = GEMMInfo());
     /** Static function to check if given info will lead to a valid configuration of @ref NEGEMM.
      *
-     * @param[in]  a         First input tensor info  (Matrix or Vector A). Data types supported: F16/F32
-     * @param[in]  b         Second input tensor info (Matrix B). Data type supported: same as @p a.
-     * @param[in]  c         Third input tensor info  (Matrix C). It can be a nullptr if just the multiplication between @p a and @p b is needed. Data type supported: same as @p a.
-     * @param[out] output    Output tensor info. Data type supported: same as @p a
-     * @param[in]  alpha     Weight of the matrix product
-     * @param[in]  beta      Weight of matrix C
-     * @param[in]  gemm_info (Optional) Specifies if the matrix A and/or matrix B have been reshaped and
-     *                       if the reshape of matrix B should happen only for the first run
+     * Similar to @ref NEGEMM::configure()
      *
      * @return a status
      */
@@ -95,19 +89,8 @@ public:
     void prepare() override;
 
 private:
-    MemoryGroup                _memory_group;
-    NEGEMMInterleave4x4Kernel  _interleave_kernel;
-    NEGEMMTranspose1xWKernel   _transpose_kernel;
-    NEGEMMMatrixMultiplyKernel _mm_kernel;
-    NEGEMMAssemblyDispatch     _asm_glue;
-    NEGEMMMatrixAdditionKernel _ma_kernel;
-    Tensor                     _tmp_a;
-    Tensor                     _tmp_b;
-    const ITensor             *_original_b;
-    bool                       _run_vector_matrix_multiplication;
-    bool                       _run_addition;
-    bool                       _reshape_b_only_on_first_run;
-    bool                       _is_prepared;
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_NEGEMM_H__ */
+#endif /*ARM_COMPUTE_NEGEMM_H */

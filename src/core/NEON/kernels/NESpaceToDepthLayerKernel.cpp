@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,14 +21,17 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/NEON/kernels/NESpaceToDepthLayerKernel.h"
+#include "src/core/NEON/kernels/NESpaceToDepthLayerKernel.h"
 
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/ITensor.h"
-#include "arm_compute/core/NEON/wrapper/wrapper.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Validate.h"
 #include "arm_compute/core/utils/misc/ShapeCalculator.h"
+#include "src/core/NEON/wrapper/wrapper.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+
 #include <arm_neon.h>
 #include <cstdint>
 
@@ -41,6 +44,7 @@ namespace
 Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, int32_t block_shape)
 {
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
+    ARM_COMPUTE_RETURN_ERROR_ON(input->data_type() == DataType::UNKNOWN);
     ARM_COMPUTE_RETURN_ERROR_ON(input->num_dimensions() > 4);
 
     ARM_COMPUTE_RETURN_ERROR_ON(block_shape < 1);
@@ -66,7 +70,7 @@ Status validate_arguments(const ITensorInfo *input, const ITensorInfo *output, i
 } // namespace
 
 NESpaceToDepthLayerKernel::NESpaceToDepthLayerKernel()
-    : _input(nullptr), _output(nullptr), _block_shape()
+    : _input(nullptr), _output(nullptr), _block_shape(), _data_layout(DataLayout::UNKNOWN)
 {
 }
 
@@ -82,6 +86,7 @@ void NESpaceToDepthLayerKernel::configure(const ITensor *input, ITensor *output,
     _input       = input;
     _block_shape = block_shape;
     _output      = output;
+    _data_layout = input->info()->data_layout();
 
     // Configure kernel window
     Window win = calculate_max_window(*output->info(), Steps());
@@ -100,9 +105,8 @@ void NESpaceToDepthLayerKernel::run(const Window &window, const ThreadInfo &info
     ARM_COMPUTE_ERROR_ON_UNCONFIGURED_KERNEL(this);
     ARM_COMPUTE_ERROR_ON_INVALID_SUBWINDOW(ICPPKernel::window(), window);
 
-    const DataLayout data_layout  = _input->info()->data_layout();
-    const int        channel_idx  = get_data_layout_dimension_index(data_layout, DataLayoutDimension::CHANNEL);
-    const int        element_size = _input->info()->element_size();
+    const int channel_idx  = get_data_layout_dimension_index(_data_layout, DataLayoutDimension::CHANNEL);
+    const int element_size = _input->info()->element_size();
 
     const size_t channel_size = _input->info()->dimension(channel_idx);
 
@@ -111,7 +115,7 @@ void NESpaceToDepthLayerKernel::run(const Window &window, const ThreadInfo &info
     int batch_id = 0;
 
     // Main loop for NCHW and NHWC
-    if(_output->info()->data_layout() == DataLayout::NCHW)
+    if(_data_layout == DataLayout::NCHW)
     {
         do
         {

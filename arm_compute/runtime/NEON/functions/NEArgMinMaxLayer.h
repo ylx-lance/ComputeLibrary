@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,44 +21,72 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NEARGMINMAXLAYER_H__
-#define __ARM_COMPUTE_NEARGMINMAXLAYER_H__
+#ifndef ARM_COMPUTE_NEARGMINMAXLAYER_H
+#define ARM_COMPUTE_NEARGMINMAXLAYER_H
 
-#include "arm_compute/core/NEON/kernels/NEFillBorderKernel.h"
-#include "arm_compute/core/NEON/kernels/NEReductionOperationKernel.h"
+#include "arm_compute/runtime/NEON/functions/NEReductionOperation.h"
+
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/MemoryGroup.h"
 #include "arm_compute/runtime/NEON/INESimpleFunction.h"
 
 namespace arm_compute
 {
-class IsTensor;
+class ITensor;
 
-/** Function to calculate the index of the minimum or maximum values in a tensor based on an axis.
- *  This function calls the following NEON kernels:
+/** Function to calculate the index of the minimum or maximum values in a
+ *  tensor based on an axis.
+ *
+ *  This function calls the following kernels:
  *
  * -# @ref NEReductionOperationKernel
  * -# @ref NEFillBorderKernel
  *
+ * @note The default data type for an uninitialized output tensor is
+ *       signed 32-bit integer (S32). It is the user's responsibility to check
+ *       that the results do not overflow because the indices are computed
+ *       in unsigned 32-bit (U32).
  */
 class NEArgMinMaxLayer : public IFunction
 {
 public:
     /** Constructor */
     NEArgMinMaxLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEArgMinMaxLayer(const NEArgMinMaxLayer &) = delete;
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NEArgMinMaxLayer &operator=(const NEArgMinMaxLayer &) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NEArgMinMaxLayer(NEArgMinMaxLayer &&) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NEArgMinMaxLayer &operator=(NEArgMinMaxLayer &&) = delete;
+    /** Default destructor */
+    ~NEArgMinMaxLayer();
     /** Set the input and output tensors.
      *
-     * @param[in]  input  Input source tensor. Data types supported: QASYMM8/S32/F16/F32.
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src            |dst        |
+     * |:--------------|:----------|
+     * |QASYMM8        |U32, S32   |
+     * |QASYMM8_SIGNED |U32, S32   |
+     * |S32            |U32, S32   |
+     * |F16            |U32, S32   |
+     * |F32            |U32, S32   |
+     *
+     * @param[in]  input  Input source tensor. Data types supported: QASYMM8_SIGNED/QASYMM8/S32/F16/F32.
      * @param[in]  axis   Axis to find max/min index.
-     * @param[out] output Output source tensor. Data types supported: U32.
+     * @param[out] output Output source tensor. Data types supported: U32/S32.
      * @param[in]  op     Operation to perform: min or max
      */
     void configure(ITensor *input, int axis, ITensor *output, const ReductionOperation &op);
     /** Static function to check if given info will lead to a valid configuration of @ref NEArgMinMaxLayer
      *
-     * @param[in] input  Input source tensor info. Data types supported: QASYMM8/S32/F16/F32.
+     * @param[in] input  Input source tensor info. Data types supported: QASYMM8_SIGNED/QASYMM8/S32/F16/F32.
      * @param[in] axis   Axis to find max/min index.
-     * @param[in] output Output source tensor info. Data types supported: U32.
+     * @param[in] output Output source tensor info. Data types supported: U32/S32.
      * @param[in] op     Operation to perform: min or max
      *
      * @return a status
@@ -69,10 +97,7 @@ public:
     void run() override;
 
 private:
-    MemoryGroup                _memory_group;
-    NEReductionOperationKernel _reduction_kernel;
-    NEFillBorderKernel         _fill_border_kernel;
-    bool                       _run_fill_border;
+    std::unique_ptr<NEReductionOperation> _reduction_function;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_NEARGMINMAXLAYER_H__ */
+#endif /* ARM_COMPUTE_NEARGMINMAXLAYER_H */

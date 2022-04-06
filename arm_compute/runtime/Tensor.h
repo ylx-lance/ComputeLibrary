@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2016-2018 ARM Limited.
+ * Copyright (c) 2016-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TENSOR_H__
-#define __ARM_COMPUTE_TENSOR_H__
+#ifndef ARM_COMPUTE_TENSOR_H
+#define ARM_COMPUTE_TENSOR_H
 
 #include "arm_compute/core/ITensor.h"
 #include "arm_compute/runtime/TensorAllocator.h"
@@ -32,13 +32,17 @@
 namespace arm_compute
 {
 class ITensorInfo;
-
+class IRuntimeContext;
 /** Basic implementation of the tensor interface */
-class Tensor : public ITensor
+class Tensor : public ITensor, public IMemoryManageable
 {
 public:
-    /** Constructor */
-    Tensor();
+    /** Constructor
+     *
+     * @param[in] ctx (Optional) Pointer to the runtime context.
+     *
+     */
+    Tensor(IRuntimeContext *ctx = nullptr);
     /** Destructor: free the tensor's memory */
     ~Tensor() = default;
     /** Allow instances of this class to be move constructed */
@@ -55,6 +59,7 @@ public:
     ITensorInfo *info() const override;
     ITensorInfo *info() override;
     uint8_t     *buffer() const override;
+    void associate_memory_group(IMemoryGroup *memory_group) override;
 
 private:
     mutable TensorAllocator _allocator; /**< Instance of the basic CPU allocator.*/
@@ -62,5 +67,5 @@ private:
 
 /** Image */
 using Image = Tensor;
-}
-#endif /*__ARM_COMPUTE_TENSOR_H__ */
+} // namespace arm_compute
+#endif /*ARM_COMPUTE_TENSOR_H */

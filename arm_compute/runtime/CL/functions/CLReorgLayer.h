@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,22 +21,33 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLREORGLAYER_H__
-#define __ARM_COMPUTE_CLREORGLAYER_H__
+#ifndef ARM_COMPUTE_CLREORGLAYER_H
+#define ARM_COMPUTE_CLREORGLAYER_H
 
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/CL/ICLSimpleFunction.h"
 
 namespace arm_compute
 {
+class CLCompileContext;
 class ICLTensor;
+class ITensorInfo;
 
 class CLReorgLayer : public ICLSimpleFunction
 {
 public:
     /** Initialise the function's source and destination.
      *
-     * @param[in]  input  Source tensor. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32.
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |All            |All            |
+     *
+     * @param[in]  input  Source tensor. Data types supported: All.
      * @param[out] output Destination tensor with tensor shape:
      *                    [width_input / stride, height_input / stride, channels_input * stride * stride, batch_size]. This means the output has
      *                    the same number of input elements. Data types supported: same as @p input.
@@ -45,9 +56,21 @@ public:
      *
      */
     void configure(ICLTensor *input, ICLTensor *output, int32_t stride);
+    /** Initialise the function's source and destination.
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  input           Source tensor. Data types supported: All.
+     * @param[out] output          Destination tensor with tensor shape:
+     *                             [width_input / stride, height_input / stride, channels_input * stride * stride, batch_size]. This means the output has
+     *                             the same number of input elements. Data types supported: same as @p input.
+     * @param[in]  stride          Stride value to use for reorganizing the values in the output tensor.
+     *                    It defines the spatial distance between 2 consecutive pixels in the x and y direction
+     *
+     */
+    void configure(const CLCompileContext &compile_context, ICLTensor *input, ICLTensor *output, int32_t stride);
     /** Static function to check if given info will lead to a valid configuration of @ref CLReorgLayer
      *
-     * @param[in] input  Source tensor. Data types supported: U8/S8/QASYMM8/U16/S16/F16/U32/S32/F32.
+     * @param[in] input  Source tensor. Data types supported: All.
      * @param[in] output Destination tensor with tensor shape:
      *                   [width_input / stride, height_input / stride, channels_input * stride * stride, batch_size]. This means the output has
      *                   the same number of input elements. Data types supported: same as @p input. Data types supported: same as @p input.
@@ -59,4 +82,4 @@ public:
     static Status validate(const ITensorInfo *input, const ITensorInfo *output, int32_t stride);
 };
 } // namespace arm_compute
-#endif /*__ARM_COMPUTE_CLREORGLAYER_H__ */
+#endif /*ARM_COMPUTE_CLREORGLAYER_H */

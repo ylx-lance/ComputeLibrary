@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 ARM Limited.
+ * Copyright (c) 2017-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_STEPS_H__
-#define __ARM_COMPUTE_STEPS_H__
+#ifndef ARM_COMPUTE_STEPS_H
+#define ARM_COMPUTE_STEPS_H
 
 #include "arm_compute/core/Dimensions.h"
 #include "arm_compute/core/Error.h"
@@ -37,7 +37,7 @@ namespace arm_compute
 /** Class to describe a number of elements in each dimension. Similar to @ref
  *  Strides but not in bytes but number of elements.
  */
-class Steps : public Dimensions<unsigned int>
+class Steps : public Dimensions<uint32_t>
 {
 public:
     /** Constructor to initialize the steps.
@@ -63,4 +63,4 @@ public:
     ~Steps() = default;
 };
 }
-#endif /*__ARM_COMPUTE_STEPS_H__*/
+#endif /*ARM_COMPUTE_STEPS_H*/

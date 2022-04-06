@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,14 +21,14 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NESCHEDULER_H__
-#define __ARM_COMPUTE_NESCHEDULER_H__
+#ifndef ARM_COMPUTE_NESCHEDULER_H
+#define ARM_COMPUTE_NESCHEDULER_H
 
 #include "arm_compute/runtime/Scheduler.h"
 
 namespace arm_compute
 {
-/** NEON Scheduler */
+/** CPU Scheduler */
 using NEScheduler = Scheduler;
 }
-#endif /*__ARM_COMPUTE_NESCHEDULER_H__ */
+#endif /*ARM_COMPUTE_NESCHEDULER_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,19 +21,19 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#include "arm_compute/core/CL/kernels/CLGenerateProposalsLayerKernel.h"
+#include "src/core/CL/kernels/CLGenerateProposalsLayerKernel.h"
 
-#include "arm_compute/core/AccessWindowStatic.h"
 #include "arm_compute/core/CL/CLHelpers.h"
 #include "arm_compute/core/CL/CLKernelLibrary.h"
-#include "arm_compute/core/CL/CLValidate.h"
-#include "arm_compute/core/CL/ICLArray.h"
 #include "arm_compute/core/CL/ICLTensor.h"
 #include "arm_compute/core/CL/OpenCL.h"
 #include "arm_compute/core/Helpers.h"
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/Utils.h"
-#include "arm_compute/core/Window.h"
+#include "src/core/CL/CLValidate.h"
+#include "src/core/helpers/AutoConfiguration.h"
+#include "src/core/helpers/WindowHelpers.h"
+#include "support/StringSupport.h"
 
 namespace arm_compute
 {
@@ -44,7 +44,7 @@ Status validate_arguments(const ITensorInfo *anchors, const ITensorInfo *all_anc
     ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(anchors, all_anchors);
     ARM_COMPUTE_RETURN_ERROR_ON_F16_UNSUPPORTED(anchors);
     ARM_COMPUTE_RETURN_ERROR_ON(anchors->dimension(0) != info.values_per_roi());
-    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_NOT_IN(anchors, DataType::F16, DataType::F32);
+    ARM_COMPUTE_RETURN_ERROR_ON_DATA_TYPE_NOT_IN(anchors, DataType::QSYMM16, DataType::F16, DataType::F32);
     ARM_COMPUTE_RETURN_ERROR_ON(anchors->num_dimensions() > 2);
     if(all_anchors->total_size() > 0)
     {
@@ -55,6 +55,11 @@ Status validate_arguments(const ITensorInfo *anchors, const ITensorInfo *all_anc
         ARM_COMPUTE_RETURN_ERROR_ON(all_anchors->num_dimensions() > 2);
         ARM_COMPUTE_RETURN_ERROR_ON(all_anchors->dimension(0) != info.values_per_roi());
         ARM_COMPUTE_RETURN_ERROR_ON(all_anchors->dimension(1) != feature_height * feature_width * num_anchors);
+
+        if(is_data_type_quantized(anchors->data_type()))
+        {
+            ARM_COMPUTE_RETURN_ERROR_ON_MISMATCHING_QUANTIZATION_INFO(anchors, all_anchors);
+        }
     }
     return Status{};
 }
@@ -63,11 +68,18 @@ Status validate_arguments(const ITensorInfo *anchors, const ITensorInfo *all_anc
 CLComputeAllAnchorsKernel::CLComputeAllAnchorsKernel()
     : _anchors(nullptr), _all_anchors(nullptr)
 {
+    _type = CLKernelType::ELEMENTWISE;
 }
 
 void CLComputeAllAnchorsKernel::configure(const ICLTensor *anchors, ICLTensor *all_anchors, const ComputeAnchorsInfo &info)
 {
+    configure(CLKernelLibrary::get().get_compile_context(), anchors, all_anchors, info);
+}
+
+void CLComputeAllAnchorsKernel::configure(const CLCompileContext &compile_context, const ICLTensor *anchors, ICLTensor *all_anchors, const ComputeAnchorsInfo &info)
+{
     ARM_COMPUTE_ERROR_ON_NULLPTR(anchors, all_anchors);
+    auto padding_info = get_padding_info({ anchors, all_anchors });
     ARM_COMPUTE_ERROR_THROW_ON(validate_arguments(anchors->info(), all_anchors->info(), info));
 
     // Metadata
@@ -78,11 +90,13 @@ void CLComputeAllAnchorsKernel::configure(const ICLTensor *anchors, ICLTensor *a
 
     // Initialize the output if empty
     const TensorShape output_shape(info.values_per_roi(), width * height * num_anchors);
-    auto_init_if_empty(*all_anchors->info(), output_shape, 1, data_type);
+    auto_init_if_empty(*all_anchors->info(), TensorInfo(output_shape, 1, data_type, anchors->info()->quantization_info()));
 
     // Set instance variables
     _anchors     = anchors;
     _all_anchors = all_anchors;
+
+    const bool is_quantized = is_data_type_quantized(anchors->info()->data_type());
 
     // Set build options
     CLBuildOptions build_opts;
@@ -93,14 +107,23 @@ void CLComputeAllAnchorsKernel::configure(const ICLTensor *anchors, ICLTensor *a
     build_opts.add_option("-DNUM_ANCHORS=" + support::cpp11::to_string(num_anchors));
     build_opts.add_option("-DNUM_ROI_FIELDS=" + support::cpp11::to_string(info.values_per_roi()));
 
+    if(is_quantized)
+    {
+        const UniformQuantizationInfo qinfo = anchors->info()->quantization_info().uniform();
+        build_opts.add_option("-DSCALE=" + float_to_string_with_full_precision(qinfo.scale));
+        build_opts.add_option("-DOFFSET=" + float_to_string_with_full_precision(qinfo.offset));
+    }
+
     // Create kernel
-    _kernel = static_cast<cl::Kernel>(CLKernelLibrary::get().create_kernel("generate_proposals_compute_all_anchors", build_opts.options()));
+    const std::string kernel_name = (is_quantized) ? "generate_proposals_compute_all_anchors_quantized" : "generate_proposals_compute_all_anchors";
+    _kernel                       = create_kernel(compile_context, kernel_name, build_opts.options());
 
     // The tensor all_anchors can be interpreted as an array of structs (each structs has values_per_roi fields).
     // This means we don't need to pad on the X dimension, as we know in advance how many fields
     // compose the struct.
     Window win = calculate_max_window(*all_anchors->info(), Steps(info.values_per_roi()));
     ICLKernel::configure_internal(win);
+    ARM_COMPUTE_ERROR_ON(has_padding_changed(padding_info));
 }
 
 Status CLComputeAllAnchorsKernel::validate(const ITensorInfo *anchors, const ITensorInfo *all_anchors, const ComputeAnchorsInfo &info)
@@ -124,6 +147,6 @@ void CLComputeAllAnchorsKernel::run(const Window &window, cl::CommandQueue &queu
 
     // Note that we don't need to loop over the slices, as we are launching exactly
     // as many threads as all the anchors generated
-    enqueue(queue, *this, collapsed);
+    enqueue(queue, *this, collapsed, lws_hint());
 }
 } // namespace arm_compute

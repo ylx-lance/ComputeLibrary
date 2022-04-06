@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2019 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_ACTIVATIONFUNCTIONS_DATASET_H__
-#define __ARM_COMPUTE_TEST_ACTIVATIONFUNCTIONS_DATASET_H__
+#ifndef ARM_COMPUTE_TEST_ACTIVATIONFUNCTIONS_DATASET_H
+#define ARM_COMPUTE_TEST_ACTIVATIONFUNCTIONS_DATASET_H
 
 #include "arm_compute/core/Types.h"
 #include "tests/framework/datasets/ContainerDataset.h"
@@ -49,6 +49,7 @@ public:
                             ActivationLayerInfo::ActivationFunction::LU_BOUNDED_RELU,
                             ActivationLayerInfo::ActivationFunction::LEAKY_RELU,
                             ActivationLayerInfo::ActivationFunction::SOFT_RELU,
+                            ActivationLayerInfo::ActivationFunction::ELU,
                             ActivationLayerInfo::ActivationFunction::SQRT,
                             ActivationLayerInfo::ActivationFunction::SQUARE,
                             ActivationLayerInfo::ActivationFunction::TANH,
@@ -76,4 +77,4 @@ public:
 } // namespace datasets
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_ACTIVATIONFUNCTIONS_DATASET_H__ */
+#endif /* ARM_COMPUTE_TEST_ACTIVATIONFUNCTIONS_DATASET_H */

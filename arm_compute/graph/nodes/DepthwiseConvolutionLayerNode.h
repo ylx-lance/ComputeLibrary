@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2019, 2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_DEPTHWISE_CONVOLUTION_LAYER_NODE_H__
-#define __ARM_COMPUTE_GRAPH_DEPTHWISE_CONVOLUTION_LAYER_NODE_H__
+#ifndef ARM_COMPUTE_GRAPH_DEPTHWISE_CONVOLUTION_LAYER_NODE_H
+#define ARM_COMPUTE_GRAPH_DEPTHWISE_CONVOLUTION_LAYER_NODE_H
 
 #include "arm_compute/graph/INode.h"
 
@@ -78,6 +78,11 @@ public:
      * @param[in] fused_activation Fused activation to set
      */
     void set_fused_activation(ActivationLayerInfo fused_activation);
+    /** Sets convolution info
+     *
+     * @param[in] info Convolution info to set
+     */
+    void set_convolution_info(PadStrideInfo info);
     /** Computes depthwise convolution output descriptor
      *
      * @param[in] input_descriptor   Input descriptor
@@ -110,4 +115,4 @@ private:
 };
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_DEPTHWISE_CONVOLUTION_LAYER_NODE_H__ */
+#endif /* ARM_COMPUTE_GRAPH_DEPTHWISE_CONVOLUTION_LAYER_NODE_H */

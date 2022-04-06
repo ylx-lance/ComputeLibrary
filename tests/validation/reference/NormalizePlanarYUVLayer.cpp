@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -68,7 +68,18 @@ SimpleTensor<uint8_t> normalize_planar_yuv_layer<uint8_t>(const SimpleTensor<uin
     SimpleTensor<float>   mean_tmp = convert_from_asymmetric(mean);
     SimpleTensor<float>   std_tmp  = convert_from_asymmetric(std);
     SimpleTensor<float>   dst_tmp  = normalize_planar_yuv_layer<float>(src_tmp, mean_tmp, std_tmp);
-    SimpleTensor<uint8_t> dst      = convert_to_asymmetric(dst_tmp, src.quantization_info());
+    SimpleTensor<uint8_t> dst      = convert_to_asymmetric<uint8_t>(dst_tmp, src.quantization_info());
+    return dst;
+}
+
+template <>
+SimpleTensor<int8_t> normalize_planar_yuv_layer<int8_t>(const SimpleTensor<int8_t> &src, const SimpleTensor<int8_t> &mean, const SimpleTensor<int8_t> &std)
+{
+    SimpleTensor<float>  src_tmp  = convert_from_asymmetric(src);
+    SimpleTensor<float>  mean_tmp = convert_from_asymmetric(mean);
+    SimpleTensor<float>  std_tmp  = convert_from_asymmetric(std);
+    SimpleTensor<float>  dst_tmp  = normalize_planar_yuv_layer<float>(src_tmp, mean_tmp, std_tmp);
+    SimpleTensor<int8_t> dst      = convert_to_asymmetric<int8_t>(dst_tmp, src.quantization_info());
     return dst;
 }
 

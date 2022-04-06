@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_GRAPH_BUILDER_H__
-#define __ARM_COMPUTE_GRAPH_GRAPH_BUILDER_H__
+#ifndef ARM_COMPUTE_GRAPH_GRAPH_BUILDER_H
+#define ARM_COMPUTE_GRAPH_GRAPH_BUILDER_H
 
 #include "arm_compute/graph/ITensorAccessor.h"
 #include "arm_compute/graph/LayerDescriptors.h"
@@ -84,6 +84,21 @@ public:
      */
     static NodeID add_activation_node(Graph &g, NodeParams params, NodeIdxPair input, ActivationLayerInfo act_info,
                                       const QuantizationInfo &out_quant_info = QuantizationInfo());
+    /** Adds an activation layer node to the graph
+     *
+     * @param[in] g              Graph to add the node to
+     * @param[in] params         Common node parameters
+     * @param[in] input          Input to the activation layer node as a NodeID-Index pair
+     * @param[in] op             Reduction Operation: min or max
+     * @param[in] axis           Axis to perform reduction operation across
+     * @param[in] out_data_type  (Optional) Output data type
+     * @param[in] out_quant_info (Optional) Output quantization info
+     *
+     * @return Node ID of the created node, EmptyNodeID in case of error
+     */
+    static NodeID add_arg_min_max_node(Graph &g, NodeParams params, NodeIdxPair input, ReductionOperation op, unsigned int axis,
+                                       DataType                out_data_type  = DataType::UNKNOWN,
+                                       const QuantizationInfo &out_quant_info = QuantizationInfo());
     /** Adds a batch normalization layer node to the graph
      *
      * @param[in] g              Graph to add the node to
@@ -122,8 +137,6 @@ public:
      */
     static NodeID add_channel_shuffle_node(Graph &g, NodeParams params, NodeIdxPair input, unsigned int num_groups);
     /** Adds a convolution layer node to the graph
-     *
-     * TODO (COMPMID-1113): Add a graph descriptor for convolution layer node
      *
      * @param[in] g                     Graph to add the node to
      * @param[in] params                Common node parameters
@@ -173,6 +186,16 @@ public:
      * @return Node ID of the created node, EmptyNodeID in case of error
      */
     static NodeID add_concatenate_node(Graph &g, NodeParams params, const std::vector<NodeIdxPair> &inputs, const descriptors::ConcatLayerDescriptor &concat_descriptor);
+    /** Adds an depth to space layer node to the graph
+     *
+     * @param[in] g           Graph to add the node to
+     * @param[in] params      Common node parameters
+     * @param[in] input       Input to the depth to space layer node as a NodeID-Index pair
+     * @param[in] block_shape Block shape to reshape tensor with
+     *
+     * @return Node ID of the created node, EmptyNodeID in case of error
+     */
+    static NodeID add_depth_to_space_node(Graph &g, NodeParams params, NodeIdxPair input, int32_t block_shape);
     /** Adds a depth-wise convolution layer node to the graph
      *
      * @param[in] g                     Graph to add the node to
@@ -205,6 +228,15 @@ public:
      * @return Node ID of the created node, EmptyNodeID in case of error
      */
     static NodeID add_elementwise_node(Graph &g, NodeParams params, NodeIdxPair input0, NodeIdxPair input1, EltwiseOperation operation);
+    /** Adds a dequantization node to the graph
+     *
+     * @param[in] g      Graph to add the node to
+     * @param[in] params Common node parameters
+     * @param[in] input  Input to the dequantization node as a NodeID-Index pair
+     *
+     * @return Node ID of the created node, EmptyNodeID in case of error
+     */
+    static NodeID add_dequantization_node(Graph &g, NodeParams params, NodeIdxPair input);
     /** Adds a detection output layer node to the graph
      *
      * @param[in] g              Graph to add the node to
@@ -263,13 +295,15 @@ public:
      * @param[in] bias_nid       (Optional) Node ID of the bias node data. Defaults to EmptyNodeID
      * @param[in] fc_info        (Optional) Fully connected layer metadata
      * @param[in] out_quant_info (Optional) Output quantization info
+     * @param[in] fast_math_hint (Optional) Fast math hint
      *
      * @return Node ID of the created node, EmptyNodeID in case of error
      */
     static NodeID add_fully_connected_layer(Graph &g, NodeParams params, NodeIdxPair input, unsigned int num_outputs,
                                             NodeID weights_nid, NodeID bias_nid = EmptyNodeID,
                                             const FullyConnectedLayerInfo fc_info        = FullyConnectedLayerInfo(),
-                                            const QuantizationInfo       &out_quant_info = QuantizationInfo());
+                                            const QuantizationInfo       &out_quant_info = QuantizationInfo(),
+                                            FastMathHint                  fast_math_hint = FastMathHint::Disabled);
     /** Adds a fully connected layer node to the graph
      *
      * @param[in] g                  Graph to add the layer to
@@ -281,6 +315,7 @@ public:
      * @param[in] fc_info            (Optional) Fully connected layer metadata
      * @param[in] weights_quant_info (Optional) Weights quantization info
      * @param[in] out_quant_info     (Optional) Output quantization info
+     * @param[in] fast_math_hint     (Optional) Fast math hint
      *
      * @return Node ID of the created node, EmptyNodeID in case of error
      */
@@ -288,7 +323,8 @@ public:
                                             ITensorAccessorUPtr weights_accessor = nullptr, ITensorAccessorUPtr bias_accessor = nullptr,
                                             const FullyConnectedLayerInfo fc_info            = FullyConnectedLayerInfo(),
                                             const QuantizationInfo       &weights_quant_info = QuantizationInfo(),
-                                            const QuantizationInfo       &out_quant_info     = QuantizationInfo());
+                                            const QuantizationInfo       &out_quant_info     = QuantizationInfo(),
+                                            FastMathHint                  fast_math_hint     = FastMathHint::Disabled);
     /** Adds a generate proposals layer node to the graph
      *
      * @param[in] g       Graph to add the layer to
@@ -302,6 +338,17 @@ public:
      */
     static NodeID add_generate_proposals_node(Graph &g, NodeParams params, NodeIdxPair scores, NodeIdxPair deltas,
                                               NodeIdxPair anchors, GenerateProposalsInfo info);
+    /** Adds a L2 Normalize layer node to the graph
+     *
+     * @param[in] g       Graph to add the node to
+     * @param[in] params  Common node parameters
+     * @param[in] input   Input to the normalization layer node as a NodeID-Index pair
+     * @param[in] axis    Axis to perform normalization on
+     * @param[in] epsilon Lower bound value for the normalization
+     *
+     * @return Node ID of the created node, EmptyNodeID in case of error
+     */
+    static NodeID add_l2_normalize_node(Graph &g, NodeParams params, NodeIdxPair input, int axis, float epsilon);
     /** Adds a normalization layer node to the graph
      *
      * @param[in] g         Graph to add the node to
@@ -326,15 +373,16 @@ public:
                                                 ITensorAccessorUPtr mean_accessor = nullptr, ITensorAccessorUPtr std_accessor = nullptr);
     /** Adds a pad layer node to the graph
      *
-     * @param[in] g       Graph to add the node to
-     * @param[in] params  Common node parameters
-     * @param[in] input   Input to the reshape layer node as a NodeID-Index pair
-     * @param[in] padding The padding for each spatial dimension of the input tensor. The pair padding[i]
-     *                    specifies the front and the end padding in the i-th dimension.
+     * @param[in] g         Graph to add the node to
+     * @param[in] params    Common node parameters
+     * @param[in] input     Input to the reshape layer node as a NodeID-Index pair
+     * @param[in] paddings  The padding for each spatial dimension of the input tensor. The pair padding[i]
+     *                      specifies the front and the end padding in the i-th dimension.
+     * @param[in] pad_value Padding value to be used. Defaults to 0
      *
      * @return Node ID of the created node, EmptyNodeID in case of error
      */
-    static NodeID add_pad_node(Graph &g, NodeParams params, NodeIdxPair input, PaddingList padding);
+    static NodeID add_pad_node(Graph &g, NodeParams params, NodeIdxPair input, const PaddingList &paddings, PixelValue pad_value = PixelValue());
     /** Adds a permute layer node to the graph
      *
      * @param[in] g      Graph to add the node to
@@ -357,6 +405,29 @@ public:
      * @return Node ID of the created node, EmptyNodeID in case of error
      */
     static NodeID add_pooling_node(Graph &g, NodeParams params, NodeIdxPair input, PoolingLayerInfo pool_info);
+    /** Adds a prelu layer node to the graph
+     *
+     * @param[in] g      Graph to add the node to
+     * @param[in] params Common node parameters
+     * @param[in] input  Input to the PRelu node as a NodeID-Index pair
+     * @param[in] alpha  Alpha input to the PRelu node as a NodeID-Index pair
+     *
+     * @return Node ID of the created node, EmptyNodeID in case of error
+     */
+    static NodeID add_prelu_node(Graph &g, NodeParams params, NodeIdxPair input, NodeIdxPair alpha);
+    /** Adds a print layer node to the graph
+     *
+     * @param[in] g           Graph to add the node to
+     * @param[in] params      Common node parameters
+     * @param[in] input       Input to the print layer node as a NodeID-Index pair
+     * @param[in] stream      Output stream.
+     * @param[in] format_info (Optional) Format info.
+     * @param[in] transform   (Optional) Transformation function to be applied to the input tensor before printing.
+     *
+     * @return Node ID of the created node, EmptyNodeID in case of error
+     */
+    static NodeID add_print_node(Graph &g, NodeParams params, NodeIdxPair input, std::ostream &stream, const IOFormatInfo &format_info = IOFormatInfo(),
+                                 const std::function<ITensor *(ITensor *)> transform = nullptr);
     /** Adds a priorbox layer node to the graph
      *
      * @param[in] g          Graph to add the node to
@@ -378,6 +449,18 @@ public:
      * @return Node ID of the created node, EmptyNodeID in case of error
      */
     static NodeID add_quantization_node(Graph &g, NodeParams params, NodeIdxPair input, const QuantizationInfo &out_quant_info);
+    /** Adds a reduction sum layer node to the graph
+     *
+     * @param[in] g         Graph to add the node to
+     * @param[in] params    Common node parameters
+     * @param[in] input     Input to the reorg layer node as a NodeID-Index pair
+     * @param[in] op        Reduction operation
+     * @param[in] axis      Reduction axis
+     * @param[in] keep_dims (Optional) Whether to keep the reduced dimension after the operation. Defaults to true.
+     *
+     * @return Node ID of the created node, EmptyNodeID in case of error
+     */
+    static NodeID add_reduction_operation_node(Graph &g, NodeParams params, NodeIdxPair input, ReductionOperation op, int axis, bool keep_dims = true);
     /** Adds a reorg layer node to the graph
      *
      * @param[in] g      Graph to add the node to
@@ -477,29 +560,30 @@ public:
      * @return Node ID of the created node, EmptyNodeID in case of error
      */
     static NodeID add_stack_node(Graph &g, NodeParams params, const std::vector<NodeIdxPair> &inputs, int axis);
-    /** Adds an upsample layer to the graph
+    /** Adds a strided slice node to the graph
      *
-     * @param[in] g                 Graph to add the node to
-     * @param[in] params            Common node parameters
-     * @param[in] input             Input to the yolo layer node as a NodeID-Index pair
-     * @param[in] info              Upsample layer stride info
-     * @param[in] upsampling_policy Upsampling policy used
+     * @param[in] g       Graph to add the node to
+     * @param[in] params  Common node parameters
+     * @param[in] input   Input to the strided slice layer node as a NodeID-Index pair
+     * @param[in] starts  The starts of the dimensions of the input tensor to be sliced. The length must be of rank(input).
+     * @param[in] ends    The ends of the dimensions of the input tensor to be sliced. The length must be of rank(input).
+     * @param[in] strides The strides of the dimensions of the input tensor to be sliced. The length must be of rank(input).
+     * @param[in] info    Contains masks for the starts, ends and strides
      *
      * @return Node ID of the created node, EmptyNodeID in case of error
      */
-    static NodeID add_upsample_node(Graph &g, NodeParams params, NodeIdxPair input, Size2D info, InterpolationPolicy upsampling_policy);
+    static NodeID add_strided_slice_node(Graph &g, NodeParams params, NodeIdxPair input, Coordinates &starts, Coordinates &ends, BiStrides &strides, StridedSliceLayerInfo info);
     /** Adds a yolo layer to the graph
      *
-     * @param[in] g           Graph to add the node to
-     * @param[in] params      Common node parameters
-     * @param[in] input       Input to the yolo layer node as a NodeID-Index pair
-     * @param[in] act_info    Activation layer parameters
-     * @param[in] num_classes Number of classes to activate
+     * @param[in] g        Graph to add the node to
+     * @param[in] params   Common node parameters
+     * @param[in] input    Input to the yolo layer node as a NodeID-Index pair
+     * @param[in] act_info Activation layer parameters
      *
      * @return Node ID of the created node, EmptyNodeID in case of error
      */
-    static NodeID add_yolo_node(Graph &g, NodeParams params, NodeIdxPair input, ActivationLayerInfo act_info, int32_t num_classes);
+    static NodeID add_yolo_node(Graph &g, NodeParams params, NodeIdxPair input, ActivationLayerInfo act_info);
 };
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_GRAPH_BUILDER_H__ */
+#endif /* ARM_COMPUTE_GRAPH_GRAPH_BUILDER_H */

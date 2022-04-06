@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,22 +23,59 @@
  */
 #include "arm_compute/runtime/CL/functions/CLReshapeLayer.h"
 
+#include "arm_compute/core/CL/CLKernelLibrary.h"
 #include "arm_compute/core/CL/ICLTensor.h"
-#include "arm_compute/core/CL/kernels/CLReshapeLayerKernel.h"
-#include "support/ToolchainSupport.h"
+#include "arm_compute/core/Types.h"
+#include "arm_compute/core/Validate.h"
+#include "src/core/CL/ICLKernel.h"
+#include "src/gpu/cl/operators/ClReshape.h"
 
 /** [CLReshapeLayer snippet] **/
-using namespace arm_compute;
+namespace arm_compute
+{
+struct CLReshapeLayer::Impl
+{
+    const ICLTensor                   *src{ nullptr };
+    ICLTensor                         *dst{ nullptr };
+    std::unique_ptr<opencl::ClReshape> op{ nullptr };
+};
+
+CLReshapeLayer::CLReshapeLayer()
+    : _impl(std::make_unique<Impl>())
+{
+}
+
+CLReshapeLayer::CLReshapeLayer(CLReshapeLayer &&) = default;
+CLReshapeLayer &CLReshapeLayer::operator=(CLReshapeLayer &&) = default;
+CLReshapeLayer::~CLReshapeLayer()                            = default;
 
 void CLReshapeLayer::configure(const ICLTensor *input, ICLTensor *output)
 {
-    auto k = arm_compute::support::cpp14::make_unique<CLReshapeLayerKernel>();
-    k->configure(input, output);
-    _kernel = std::move(k);
+    configure(CLKernelLibrary::get().get_compile_context(), input, output);
+}
+
+void CLReshapeLayer::configure(const CLCompileContext &compile_context, const ICLTensor *input, ICLTensor *output)
+{
+    _impl->src = input;
+    _impl->dst = output;
+    _impl->op  = std::make_unique<opencl::ClReshape>();
+    _impl->op->configure(compile_context, input->info(), output->info());
 }
 
 Status CLReshapeLayer::validate(const ITensorInfo *input, const ITensorInfo *output)
 {
-    return CLReshapeLayerKernel::validate(input, output);
+    ARM_COMPUTE_RETURN_ERROR_ON_NULLPTR(input, output);
+    ARM_COMPUTE_RETURN_ON_ERROR(opencl::ClReshape::validate(input, output));
+
+    return Status{};
 }
+
+void CLReshapeLayer::run()
+{
+    ITensorPack pack;
+    pack.add_tensor(TensorType::ACL_SRC, _impl->src);
+    pack.add_tensor(TensorType::ACL_DST, _impl->dst);
+    _impl->op->run(pack);
+}
+} // namespace arm_compute
 /** [CLReshapeLayer snippet] **/

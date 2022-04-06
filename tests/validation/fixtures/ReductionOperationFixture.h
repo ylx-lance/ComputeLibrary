@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -26,6 +26,7 @@
 
 #include "arm_compute/core/TensorShape.h"
 #include "arm_compute/core/Types.h"
+#include "arm_compute/core/utils/misc/ShapeCalculator.h"
 #include "arm_compute/runtime/Tensor.h"
 #include "tests/AssetsLibrary.h"
 #include "tests/Globals.h"
@@ -45,50 +46,77 @@ class ReductionOperationValidationFixture : public framework::Fixture
 {
 public:
     template <typename...>
-    void setup(TensorShape shape, DataType data_type, unsigned int axis, ReductionOperation op, QuantizationInfo quantization_info)
+    void setup(TensorShape shape, DataType data_type, unsigned int axis, ReductionOperation op, QuantizationInfo quantization_info, bool keep_dims = false)
     {
-        const TensorShape output_shape = get_output_shape(shape, axis);
-        _target                        = compute_target(shape, output_shape, data_type, axis, op, quantization_info);
-        _reference                     = compute_reference(shape, output_shape, data_type, axis, op, quantization_info);
+        const bool is_arg_min_max = (op == ReductionOperation::ARG_IDX_MAX) || (op == ReductionOperation::ARG_IDX_MIN);
+        _keep_dims                = keep_dims && !is_arg_min_max;
+
+        const TensorShape output_shape = arm_compute::misc::shape_calculator::compute_reduced_shape(shape, axis, _keep_dims);
+
+        _target    = compute_target(shape, data_type, axis, op, quantization_info);
+        _reference = compute_reference(shape, output_shape, data_type, axis, op, quantization_info);
     }
 
 protected:
     template <typename U>
     void fill(U &&tensor)
     {
-        if(!is_data_type_quantized(tensor.data_type()))
+        if(tensor.data_type() == DataType::F32)
         {
-            std::uniform_real_distribution<> distribution(-1.0f, 1.0f);
+            std::uniform_real_distribution<float> distribution(-1.0f, 1.0f);
             library->fill(tensor, distribution, 0);
+        }
+        else if(tensor.data_type() == DataType::F16)
+        {
+            arm_compute::utils::uniform_real_distribution_16bit<half> distribution{ -1.0f, 1.0f };
+            library->fill(tensor, distribution, 0);
+        }
+        else if(is_data_type_quantized(tensor.data_type()))
+        {
+            if(tensor.data_type() == DataType::QASYMM8)
+            {
+                std::pair<int, int> bounds = get_quantized_bounds(tensor.quantization_info(), -1.0f, 1.0f);
+                std::uniform_int_distribution<uint8_t> distribution(bounds.first, bounds.second);
+
+                library->fill(tensor, distribution, 0);
+            }
+            else if(tensor.data_type() == DataType::QASYMM8_SIGNED)
+            {
+                std::pair<int, int> bounds = get_quantized_qasymm8_signed_bounds(tensor.quantization_info(), -1.0f, 1.0f);
+                std::uniform_int_distribution<int8_t> distribution(bounds.first, bounds.second);
+
+                library->fill(tensor, distribution, 0);
+            }
+            else
+            {
+                ARM_COMPUTE_ERROR("Not supported");
+            }
         }
         else
         {
-            std::pair<int, int> bounds = get_quantized_bounds(tensor.quantization_info(), -1.0f, 1.0f);
-            std::uniform_int_distribution<uint8_t> distribution(bounds.first, bounds.second);
-
-            library->fill(tensor, distribution, 0);
+            library->fill_tensor_uniform(tensor, 0);
         }
     }
 
-    TensorType compute_target(const TensorShape &src_shape, const TensorShape &dst_shape, DataType data_type, unsigned int axis, ReductionOperation op, QuantizationInfo quantization_info)
+    TensorType compute_target(const TensorShape &src_shape, DataType data_type, unsigned int axis, ReductionOperation op, QuantizationInfo quantization_info)
     {
         // Create tensors
         TensorType src = create_tensor<TensorType>(src_shape, data_type, 1, quantization_info);
-        TensorType dst = create_tensor<TensorType>(dst_shape, data_type, 1, quantization_info);
+        TensorType dst;
 
         // Create and configure function
         FunctionType reduction_func;
-        reduction_func.configure(&src, &dst, axis, op);
+        reduction_func.configure(&src, &dst, axis, op, _keep_dims);
 
-        ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(dst.info()->is_resizable());
 
         // Allocate tensors
         src.allocator()->allocate();
         dst.allocator()->allocate();
 
-        ARM_COMPUTE_EXPECT(!src.info()->is_resizable(), framework::LogLevel::ERRORS);
-        ARM_COMPUTE_EXPECT(!dst.info()->is_resizable(), framework::LogLevel::ERRORS);
+        ARM_COMPUTE_ASSERT(!src.info()->is_resizable());
+        ARM_COMPUTE_ASSERT(!dst.info()->is_resizable());
 
         // Fill tensors
         fill(AccessorType(src));
@@ -107,19 +135,14 @@ protected:
         // Fill reference
         fill(src);
 
-        return reference::reduction_operation<T, T>(src, dst_shape, axis, op);
+        return reference::reduction_operation<T, T>(src, dst_shape, axis, op, quantization_info);
     }
 
     TensorType      _target{};
     SimpleTensor<T> _reference{};
 
 private:
-    TensorShape get_output_shape(TensorShape shape, unsigned int axis)
-    {
-        TensorShape output_shape(shape);
-        output_shape.set(axis, 1);
-        return output_shape;
-    }
+    bool _keep_dims{ false };
 };
 
 template <typename TensorType, typename AccessorType, typename FunctionType, typename T>
@@ -127,9 +150,9 @@ class ReductionOperationQuantizedFixture : public ReductionOperationValidationFi
 {
 public:
     template <typename...>
-    void setup(TensorShape shape, DataType data_type, unsigned int axis, ReductionOperation op, QuantizationInfo quantization_info = QuantizationInfo())
+    void setup(TensorShape shape, DataType data_type, unsigned int axis, ReductionOperation op, QuantizationInfo quantization_info = QuantizationInfo(), bool keep_dims = false)
     {
-        ReductionOperationValidationFixture<TensorType, AccessorType, FunctionType, T>::setup(shape, data_type, axis, op, quantization_info);
+        ReductionOperationValidationFixture<TensorType, AccessorType, FunctionType, T>::setup(shape, data_type, axis, op, quantization_info, keep_dims);
     }
 };
 
@@ -138,9 +161,9 @@ class ReductionOperationFixture : public ReductionOperationValidationFixture<Ten
 {
 public:
     template <typename...>
-    void setup(TensorShape shape, DataType data_type, unsigned int axis, ReductionOperation op)
+    void setup(TensorShape shape, DataType data_type, unsigned int axis, ReductionOperation op, bool keep_dims = false)
     {
-        ReductionOperationValidationFixture<TensorType, AccessorType, FunctionType, T>::setup(shape, data_type, axis, op, QuantizationInfo());
+        ReductionOperationValidationFixture<TensorType, AccessorType, FunctionType, T>::setup(shape, data_type, axis, op, QuantizationInfo(), keep_dims);
     }
 };
 } // namespace validation

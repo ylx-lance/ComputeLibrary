@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,7 +23,7 @@
  */
 #include "arm_compute/core/utils/helpers/tensor_transform.h"
 
-#include "arm_compute/core/utils/helpers/bit_ops.h"
+#include "bit_ops.h"
 
 namespace arm_compute
 {
@@ -88,7 +88,14 @@ int calculate_end_on_index(TensorShape input_shape, int index, int start_on_inde
     // Shrink dimension
     if(shrink_axis)
     {
-        stop = start_on_index + 1;
+        if(start_on_index == std::numeric_limits<int>::max())
+        {
+            stop = start_on_index;
+        }
+        else
+        {
+            stop = start_on_index + 1;
+        }
     }
 
     // Reset in case of begin mask present

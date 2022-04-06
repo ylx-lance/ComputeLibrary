@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_FULLY_CONNECTED_LAYER_NODE_H__
-#define __ARM_COMPUTE_GRAPH_FULLY_CONNECTED_LAYER_NODE_H__
+#ifndef ARM_COMPUTE_GRAPH_FULLY_CONNECTED_LAYER_NODE_H
+#define ARM_COMPUTE_GRAPH_FULLY_CONNECTED_LAYER_NODE_H
 
 #include "arm_compute/graph/INode.h"
 
@@ -39,10 +39,27 @@ public:
      * @param[in] num_outputs    Number of neurons in the layer
      * @param[in] out_quant_info (Optional) Output quantization info
      * @param[in] fc_info        (Optional) Additional information about the fully connected layer
+     * @param[in] fast_math_hint (Optional) Fast math hint
      */
     FullyConnectedLayerNode(unsigned int            num_outputs,
                             QuantizationInfo        out_quant_info = QuantizationInfo(),
-                            FullyConnectedLayerInfo fc_info        = FullyConnectedLayerInfo());
+                            FullyConnectedLayerInfo fc_info        = FullyConnectedLayerInfo(),
+                            FastMathHint            fast_math_hint = FastMathHint::Disabled);
+    /** Sets the fast math fast hint
+     *
+     * @param[in] hint Hint to use for fullyconnected layer
+     */
+    void set_fast_math_hint(FastMathHint hint);
+    /** Fast math hint accessor
+     *
+     * @return Fast math hint to be used by the node
+     */
+    FastMathHint fast_math_hint() const;
+    /** Sets fused activation
+     *
+     * @param[in] fused_activation Fused activation to set
+     */
+    void set_fused_activation(ActivationLayerInfo fused_activation);
     /** Computes weights descriptor
      *
      * @warning Works for inputs with 1D batch space
@@ -83,11 +100,14 @@ public:
     TensorDescriptor configure_output(size_t idx) const override;
     void accept(INodeVisitor &v) override;
 
+    static constexpr NodeType node_type = NodeType::FullyConnectedLayer;
+
 private:
     unsigned int            _num_outputs;
     QuantizationInfo        _out_quant_info;
     FullyConnectedLayerInfo _info;
+    FastMathHint            _fast_math_hint;
 };
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_FULLY_CONNECTED_LAYER_NODE_H__ */
+#endif /* ARM_COMPUTE_GRAPH_FULLY_CONNECTED_LAYER_NODE_H */

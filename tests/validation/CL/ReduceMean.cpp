@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -25,7 +25,6 @@
 #include "arm_compute/runtime/CL/CLTensor.h"
 #include "arm_compute/runtime/CL/CLTensorAllocator.h"
 #include "arm_compute/runtime/CL/functions/CLReduceMean.h"
-
 #include "tests/CL/CLAccessor.h"
 #include "tests/datasets/ShapeDatasets.h"
 #include "tests/datasets/SplitDataset.h"
@@ -55,46 +54,30 @@ TEST_SUITE(ReduceMean)
 
 // *INDENT-OFF*
 // clang-format off
-DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
+DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(zip(
         framework::dataset::make("InputInfo", { TensorInfo(TensorShape(27U, 3U, 16U, 2U), 1, DataType::F32), // Invalid axis
                                                 TensorInfo(TensorShape(27U, 3U, 16U, 2U), 1, DataType::F32), // Invalid output shape
-                                                TensorInfo(TensorShape(32U, 16U, 16U, 2U), 1, DataType::F32)
+                                                TensorInfo(TensorShape(32U, 16U, 16U, 2U), 1, DataType::F32),// OK
+                                                TensorInfo(TensorShape{228U, 19U, 2U, 2U}, 1, DataType::F32),// OK
+                                                TensorInfo(TensorShape{228U, 19U, 2U, 1U}, 1, DataType::F32) // Cannot support axis 3 not valid
         }),
         framework::dataset::make("OutputInfo", { TensorInfo(TensorShape(27U, 3U, 1U, 2U), 1, DataType::F32),
                                                  TensorInfo(TensorShape(27U, 3U, 1U, 2U), 1, DataType::F32),
-                                                 TensorInfo(TensorShape(32U, 16U, 1U, 2U), 1, DataType::F32)
+                                                 TensorInfo(TensorShape(32U, 16U, 1U, 2U), 1, DataType::F32),
+                                                 TensorInfo(TensorShape(19U), 1, DataType::F32),
+                                                 TensorInfo(TensorShape(19U), 1, DataType::F32)
+
         })),
-        framework::dataset::make("Axis", { Coordinates(4), Coordinates(0,2), Coordinates(2) })),
-        framework::dataset::make("Expected", { false, false, true })),
-        input_info, output_info, axis, expected)
+        framework::dataset::make("Axis", { Coordinates(4), Coordinates(0,2), Coordinates(2), Coordinates(3,2,0), Coordinates(3,2,0) })),
+        framework::dataset::make("Keep", { true, true, true, false, false })),
+        framework::dataset::make("Expected", { false, false, true, true, false })),
+        input_info, output_info, axis, keep, expected)
 {
-    const Status status = CLReduceMean::validate(&input_info.clone()->set_is_resizable(false), axis, true, &output_info.clone()->set_is_resizable(false));
+    const Status status = CLReduceMean::validate(&input_info.clone()->set_is_resizable(false), axis, keep, &output_info.clone()->set_is_resizable(false));
     ARM_COMPUTE_EXPECT(bool(status) == expected, framework::LogLevel::ERRORS);
 }
 // clang-format on
 // *INDENT-ON*
-
-DATA_TEST_CASE(Configuration,
-               framework::DatasetMode::ALL,
-               combine(datasets::SmallShapes(), framework::dataset::make("DataType", { DataType::F16, DataType::F32 })),
-               shape, data_type)
-{
-    // Create tensors
-    CLTensor ref_src = create_tensor<CLTensor>(shape, data_type);
-    CLTensor dst;
-
-    Coordinates axis(1);
-
-    // Create and Configure function
-    CLReduceMean reduce_mean;
-    reduce_mean.configure(&ref_src, axis, true, &dst);
-
-    // Validate valid region
-    TensorShape output_shape = shape;
-    output_shape.set(1, 1);
-    const ValidRegion valid_region = shape_to_valid_region(output_shape);
-    validate(dst.info()->valid_region(), valid_region);
-}
 
 template <typename T>
 using CLReduceMeanFixture = ReduceMeanFixture<CLTensor, CLAccessor, CLReduceMean, T>;
@@ -149,21 +132,75 @@ TEST_SUITE(QASYMM8)
 FIXTURE_DATA_TEST_CASE(RunSmall,
                        CLReduceMeanQuantizedFixture<uint8_t>,
                        framework::DatasetMode::PRECOMMIT,
-                       combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8)), concat(axis_keep, axis_drop)), framework::dataset::make("QuantizationInfo", { QuantizationInfo(1.f / 255, 0) })))
+                       combine(combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8)), concat(axis_keep, axis_drop)),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 255, 5) })),
+                               framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.f / 255, 5) })))
 {
     // Validate output
     validate(CLAccessor(_target), _reference, tolerance_qasymm8);
 }
 
+TEST_SUITE(Requant)
+FIXTURE_DATA_TEST_CASE(RunSmall,
+                       CLReduceMeanQuantizedFixture<uint8_t>,
+                       framework::DatasetMode::PRECOMMIT,
+                       combine(combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8)), axis_drop),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 255, 5) })),
+                               framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.f / 200, 16) })))
+{
+    // Validate output
+    validate(CLAccessor(_target), _reference, tolerance_qasymm8);
+}
+TEST_SUITE_END() // Requant
+
 FIXTURE_DATA_TEST_CASE(RunLarge,
                        CLReduceMeanQuantizedFixture<uint8_t>,
                        framework::DatasetMode::NIGHTLY,
-                       combine(combine(combine(datasets::Large4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8)), concat(axis_keep, axis_drop)), framework::dataset::make("QuantizationInfo", { QuantizationInfo(1.f / 255, 0) })))
+                       combine(combine(combine(combine(datasets::Large4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8)), concat(axis_keep, axis_drop)),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 255, 5) })),
+                               framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.f / 255, 5) })))
 {
     // Validate output
     validate(CLAccessor(_target), _reference, tolerance_qasymm8);
 }
 TEST_SUITE_END() // QASYMM8
+
+TEST_SUITE(QASYMM8_SIGNED)
+FIXTURE_DATA_TEST_CASE(RunSmall,
+                       CLReduceMeanQuantizedFixture<int8_t>,
+                       framework::DatasetMode::PRECOMMIT,
+                       combine(combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)), concat(axis_keep, axis_drop)),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 102, 2) })),
+                               framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.f / 102, 2) })))
+{
+    // Validate output
+    validate(CLAccessor(_target), _reference, tolerance_qasymm8);
+}
+
+TEST_SUITE(Requant)
+FIXTURE_DATA_TEST_CASE(RunSmall,
+                       CLReduceMeanQuantizedFixture<int8_t>,
+                       framework::DatasetMode::PRECOMMIT,
+                       combine(combine(combine(combine(datasets::Small4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)), axis_drop),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 102, 2) })),
+                               framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.f / 113, 10) })))
+{
+    // Validate output
+    validate(CLAccessor(_target), _reference, tolerance_qasymm8);
+}
+TEST_SUITE_END() // Requant
+
+FIXTURE_DATA_TEST_CASE(RunLarge,
+                       CLReduceMeanQuantizedFixture<int8_t>,
+                       framework::DatasetMode::NIGHTLY,
+                       combine(combine(combine(combine(datasets::Large4DShapes(), framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)), concat(axis_keep, axis_drop)),
+                                       framework::dataset::make("QuantizationInfoInput", { QuantizationInfo(1.f / 102, 2) })),
+                               framework::dataset::make("QuantizationInfoOutput", { QuantizationInfo(1.f / 102, 2) })))
+{
+    // Validate output
+    validate(CLAccessor(_target), _reference, tolerance_qasymm8);
+}
+TEST_SUITE_END() // QASYMM8_SIGNED
 TEST_SUITE_END() // Quantized
 TEST_SUITE_END() // ReduceMean
 TEST_SUITE_END() // CL

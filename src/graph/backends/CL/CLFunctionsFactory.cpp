@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -23,11 +23,13 @@
  */
 #include "arm_compute/graph/backends/CL/CLFunctionFactory.h"
 
-#include "arm_compute/core/utils/misc/Cast.h"
 #include "arm_compute/graph/Graph.h"
+#include "arm_compute/graph/GraphContext.h"
 #include "arm_compute/graph/backends/FunctionHelpers.h"
 #include "arm_compute/runtime/CL/CLFunctions.h"
 #include "arm_compute/runtime/CPP/CPPFunctions.h"
+#include "src/core/CL/CLKernels.h"
+#include "support/Cast.h"
 
 using namespace arm_compute::utils::cast;
 
@@ -41,6 +43,7 @@ namespace backends
 struct CLTargetInfo
 {
     using TensorType         = arm_compute::ICLTensor;
+    using SrcTensorType      = const arm_compute::ICLTensor;
     using TensorConcreteType = CLTensor;
     static Target TargetType;
 };
@@ -56,19 +59,20 @@ struct CLConvolutionLayerFunctions
     using WinogradConvolutionLayer = CLWinogradConvolutionLayer;
 };
 
-/** Collection of CL depthwise convolution functions */
-struct CLDepthwiseConvolutionLayerFunctions
-{
-    using GenericDepthwiseConvolutionLayer   = CLDepthwiseConvolutionLayer;
-    using OptimizedDepthwiseConvolutionLayer = CLDepthwiseConvolutionLayer3x3;
-};
-
 /** Collection of CL element-wise functions */
 struct CLEltwiseFunctions
 {
     using Addition       = CLArithmeticAddition;
     using Subtraction    = CLArithmeticSubtraction;
     using Multiplication = CLPixelWiseMultiplication;
+    using Maximum        = CLElementwiseMax;
+    using Division       = CLArithmeticDivision;
+};
+
+/** Collection of CL unary element-wise functions */
+struct CLUnaryEltwiseFunctions
+{
+    using Exp = CLExpLayer;
 };
 
 /** Function and tensor types to be used inside a CL fused convolution/batch normalization layer */
@@ -77,9 +81,9 @@ struct CLFusedLayerTypes
     using ConvolutionLayer          = CLConvolutionLayer;
     using DepthwiseConvolutionLayer = CLDepthwiseConvolutionLayer;
     using FuseBatchNormalization    = CLFuseBatchNormalization;
+    using GEMMConvolutionLayer      = CLGEMMConvolutionLayer;
 };
 
-// TODO (isagot01): Remove once we support heterogeneous scheduling at function level
 /** Wrapper for the CPP Function in the OpenCL backend **/
 class CPPWrapperFunction : public IFunction
 {
@@ -140,7 +144,7 @@ std::unique_ptr<IFunction> create_detection_output_layer<CPPDetectionOutputLayer
     ARM_COMPUTE_ERROR_ON(output == nullptr);
 
     // Create and configure function
-    auto func = support::cpp14::make_unique<CPPDetectionOutputLayer>();
+    auto func = std::make_unique<CPPDetectionOutputLayer>();
     func->configure(input0, input1, input2, output, detect_info);
 
     // Log info
@@ -156,8 +160,8 @@ std::unique_ptr<IFunction> create_detection_output_layer<CPPDetectionOutputLayer
                                << " DetectionOutputLayer info: " << detect_info
                                << std::endl);
 
-    auto wrap_function = support::cpp14::make_unique<CPPWrapperFunction>();
-    ;
+    auto wrap_function = std::make_unique<CPPWrapperFunction>();
+
     wrap_function->register_function(std::move(func));
     wrap_function->register_tensor(input0);
     wrap_function->register_tensor(input1);
@@ -190,7 +194,7 @@ std::unique_ptr<IFunction> create_detection_post_process_layer<CPPDetectionPostP
     ARM_COMPUTE_ERROR_ON(output3 == nullptr);
 
     // Create and configure function
-    auto func = support::cpp14::make_unique<CPPDetectionPostProcessLayer>();
+    auto func = std::make_unique<CPPDetectionPostProcessLayer>();
     func->configure(input0, input1, input2, output0, output1, output2, output3, detect_info);
 
     // Log info
@@ -209,7 +213,7 @@ std::unique_ptr<IFunction> create_detection_post_process_layer<CPPDetectionPostP
                                << " DetectionPostProcessLayer info: " << detect_info
                                << std::endl);
 
-    auto wrap_function = support::cpp14::make_unique<CPPWrapperFunction>();
+    auto wrap_function = std::make_unique<CPPWrapperFunction>();
 
     wrap_function->register_function(std::move(func));
     wrap_function->register_tensor(input0);
@@ -236,6 +240,8 @@ std::unique_ptr<IFunction> CLFunctionFactory::create(INode *node, GraphContext &
     {
         case NodeType::ActivationLayer:
             return detail::create_activation_layer<CLActivationLayer, CLTargetInfo>(*polymorphic_downcast<ActivationLayerNode *>(node));
+        case NodeType::ArgMinMaxLayer:
+            return detail::create_arg_min_max_layer<CLArgMinMaxLayer, CLTargetInfo>(*polymorphic_downcast<ArgMinMaxLayerNode *>(node));
         case NodeType::BatchNormalizationLayer:
             return detail::create_batch_normalization_layer<CLBatchNormalizationLayer, CLTargetInfo>(*polymorphic_downcast<BatchNormalizationLayerNode *>(node));
         case NodeType::BoundingBoxTransformLayer:
@@ -248,24 +254,34 @@ std::unique_ptr<IFunction> CLFunctionFactory::create(INode *node, GraphContext &
             return detail::create_deconvolution_layer<CLDeconvolutionLayer, CLTargetInfo>(*polymorphic_downcast<DeconvolutionLayerNode *>(node), ctx);
         case NodeType::ConcatenateLayer:
             return detail::create_concatenate_layer<CLConcatenateLayer, CLTargetInfo>(*polymorphic_downcast<ConcatenateLayerNode *>(node));
+        case NodeType::DepthToSpaceLayer:
+            return detail::create_depth_to_space_layer<CLDepthToSpaceLayer, CLTargetInfo>(*polymorphic_downcast<DepthToSpaceLayerNode *>(node));
         case NodeType::DepthwiseConvolutionLayer:
-            return detail::create_depthwise_convolution_layer<CLDepthwiseConvolutionLayerFunctions, CLTargetInfo>(*polymorphic_downcast<DepthwiseConvolutionLayerNode *>(node));
+            return detail::create_depthwise_convolution_layer<CLDepthwiseConvolutionLayer, CLTargetInfo>(*polymorphic_downcast<DepthwiseConvolutionLayerNode *>(node));
+        case NodeType::DequantizationLayer:
+            return detail::create_dequantization_layer<CLDequantizationLayer, CLTargetInfo>(*polymorphic_downcast<DequantizationLayerNode *>(node));
         case NodeType::DetectionOutputLayer:
             return detail::create_detection_output_layer<CPPDetectionOutputLayer, CLTargetInfo>(*polymorphic_downcast<DetectionOutputLayerNode *>(node));
         case NodeType::DetectionPostProcessLayer:
             return detail::create_detection_post_process_layer<CPPDetectionPostProcessLayer, CLTargetInfo>(*polymorphic_downcast<DetectionPostProcessLayerNode *>(node));
         case NodeType::EltwiseLayer:
             return detail::create_eltwise_layer<CLEltwiseFunctions, CLTargetInfo>(*polymorphic_downcast<EltwiseLayerNode *>(node));
+        case NodeType::UnaryEltwiseLayer:
+            return detail::create_unary_eltwise_layer<CLUnaryEltwiseFunctions, CLTargetInfo>(*polymorphic_downcast<UnaryEltwiseLayerNode *>(node));
         case NodeType::FlattenLayer:
             return detail::create_flatten_layer<CLFlattenLayer, CLTargetInfo>(*polymorphic_downcast<FlattenLayerNode *>(node));
         case NodeType::FullyConnectedLayer:
             return detail::create_fully_connected_layer<CLFullyConnectedLayer, CLTargetInfo>(*polymorphic_downcast<FullyConnectedLayerNode *>(node), ctx);
         case NodeType::FusedConvolutionBatchNormalizationLayer:
-            return detail::create_fused_convolution_batch_normalization_layer<CLFusedLayerTypes, CLTargetInfo>(*polymorphic_downcast<FusedConvolutionBatchNormalizationNode *>(node));
+            return detail::create_fused_convolution_batch_normalization_layer<CLFusedLayerTypes, CLTargetInfo>(*polymorphic_downcast<FusedConvolutionBatchNormalizationNode *>(node), ctx);
+        case NodeType::FusedConvolutionWithPostOp:
+            return detail::create_fused_convolution_with_post_op<CLFusedLayerTypes, CLTargetInfo>(*polymorphic_downcast<FusedConvolutionWithPostOpNode *>(node), ctx);
         case NodeType::FusedDepthwiseConvolutionBatchNormalizationLayer:
-            return detail::create_fused_depthwise_convolution_batch_normalization_layer<CLFusedLayerTypes, CLTargetInfo>(*polymorphic_downcast<FusedDepthwiseConvolutionBatchNormalizationNode *>(node));
+            return detail::create_fused_depthwise_convolution_batch_normalization_layer<CLFusedLayerTypes, CLTargetInfo>(*polymorphic_downcast<FusedDepthwiseConvolutionBatchNormalizationNode *>(node), ctx);
         case NodeType::GenerateProposalsLayer:
             return detail::create_generate_proposals_layer<CLGenerateProposalsLayer, CLTargetInfo>(*polymorphic_downcast<GenerateProposalsLayerNode *>(node), ctx);
+        case NodeType::L2NormalizeLayer:
+            return detail::create_l2_normalize_layer<CLL2NormalizeLayer, CLTargetInfo>(*polymorphic_downcast<L2NormalizeLayerNode *>(node), ctx);
         case NodeType::NormalizationLayer:
             return detail::create_normalization_layer<CLNormalizationLayer, CLTargetInfo>(*polymorphic_downcast<NormalizationLayerNode *>(node), ctx);
         case NodeType::NormalizePlanarYUVLayer:
@@ -276,10 +292,16 @@ std::unique_ptr<IFunction> CLFunctionFactory::create(INode *node, GraphContext &
             return detail::create_permute_layer<CLPermute, CLTargetInfo>(*polymorphic_downcast<PermuteLayerNode *>(node));
         case NodeType::PoolingLayer:
             return detail::create_pooling_layer<CLPoolingLayer, CLTargetInfo>(*polymorphic_downcast<PoolingLayerNode *>(node));
+        case NodeType::PReluLayer:
+            return detail::create_prelu_layer<CLPReluLayer, CLTargetInfo>(*polymorphic_downcast<PReluLayerNode *>(node));
+        case NodeType::PrintLayer:
+            return detail::create_print_layer<CLTargetInfo>(*polymorphic_downcast<PrintLayerNode *>(node));
         case NodeType::PriorBoxLayer:
             return detail::create_priorbox_layer<CLPriorBoxLayer, CLTargetInfo>(*polymorphic_downcast<PriorBoxLayerNode *>(node));
         case NodeType::QuantizationLayer:
             return detail::create_quantization_layer<CLQuantizationLayer, CLTargetInfo>(*polymorphic_downcast<QuantizationLayerNode *>(node));
+        case NodeType::ReductionOperationLayer:
+            return detail::create_reduction_operation_layer<CLReductionOperation, CLTargetInfo>(*polymorphic_downcast<ReductionLayerNode *>(node), ctx);
         case NodeType::ReorgLayer:
             return detail::create_reorg_layer<CLReorgLayer, CLTargetInfo>(*polymorphic_downcast<ReorgLayerNode *>(node));
         case NodeType::ReshapeLayer:
@@ -294,10 +316,10 @@ std::unique_ptr<IFunction> CLFunctionFactory::create(INode *node, GraphContext &
             return detail::create_softmax_layer<CLSoftmaxLayer, CLTargetInfo>(*polymorphic_downcast<SoftmaxLayerNode *>(node), ctx);
         case NodeType::StackLayer:
             return detail::create_stack_layer<CLStackLayer, CLTargetInfo>(*polymorphic_downcast<StackLayerNode *>(node));
-        case NodeType::UpsampleLayer:
-            return detail::create_upsample_layer<CLUpsampleLayer, CLTargetInfo>(*polymorphic_downcast<UpsampleLayerNode *>(node), ctx);
-        case NodeType::YOLOLayer:
-            return detail::create_yolo_layer<CLYOLOLayer, CLTargetInfo>(*polymorphic_downcast<YOLOLayerNode *>(node), ctx);
+        case NodeType::StridedSliceLayer:
+            return detail::create_strided_slice_layer<CLStridedSlice, CLTargetInfo>(*polymorphic_downcast<StridedSliceLayerNode *>(node));
+        case NodeType::FusedConvolutionBatchNormalizationLayerWithPostOpsLayer:
+            return detail::create_fused_convolution_batch_normalization_with_post_op<CLFusedLayerTypes, CLTargetInfo>(*polymorphic_downcast<FusedConvolutionBatchNormalizationWithPostOpsNode *>(node), ctx);
         default:
             return nullptr;
     }

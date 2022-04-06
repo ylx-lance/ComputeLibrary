@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,54 +21,22 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLFULLYCONNECTEDLAYER_H__
-#define __ARM_COMPUTE_CLFULLYCONNECTEDLAYER_H__
+#ifndef ARM_COMPUTE_CLFULLYCONNECTEDLAYER_H
+#define ARM_COMPUTE_CLFULLYCONNECTEDLAYER_H
 
-#include "arm_compute/runtime/CL/ICLSimpleFunction.h"
+#include "arm_compute/runtime/IFunction.h"
 
-#include "arm_compute/core/CL/kernels/CLGEMMMatrixAccumulateBiasesKernel.h"
-#include "arm_compute/core/CL/kernels/CLTransposeKernel.h"
-#include "arm_compute/runtime/CL/CLMemoryGroup.h"
 #include "arm_compute/runtime/CL/CLTensor.h"
-#include "arm_compute/runtime/CL/functions/CLConvertFullyConnectedWeights.h"
-#include "arm_compute/runtime/CL/functions/CLFlattenLayer.h"
-#include "arm_compute/runtime/CL/functions/CLGEMM.h"
-#include "arm_compute/runtime/CL/functions/CLGEMMLowpMatrixMultiplyCore.h"
-#include "arm_compute/runtime/CL/functions/CLGEMMLowpOutputStage.h"
+#include "arm_compute/runtime/IWeightsManager.h"
+#include "arm_compute/runtime/MemoryGroup.h"
 
 namespace arm_compute
 {
-/** Basic function to reshape the weights of Fully Connected layer with OpenCL. This function calls the following kernels:
- *
- *  -# @ref CLTransposeKernel
- *
- * @note  The fully connected layer accepts "weights" tensors only with 2 dimensions.
- */
-class CLFullyConnectedLayerReshapeWeights : public ICLSimpleFunction
-{
-public:
-    /** Set the input and output tensors.
-     *
-     * @param[in]  input  Weights tensor. The weights must be 2 dimensional. Data types supported: QASYMM8/F16/F32.
-     * @param[out] output Destination tensor which stores the transposed input tensor. Data type supported: Same as @p input.
-     */
-    void configure(const ICLTensor *input, ICLTensor *output);
-    /** Static function to check if given info will lead to a valid configuration of @ref CLFullyConnectedLayerReshapeWeights
-     *
-     * @param[in] input  Weights tensor. The weights must be 2 dimensional. Data types supported: QASYMM8/F16/F32.
-     * @param[in] output Destination tensor which stores the transposed input tensor. Data type supported: Same as @p input.
-     *
-     * @return a status
-     */
-    static Status validate(const ITensorInfo *input, const ITensorInfo *output);
-};
-
 /** Basic function to compute a Fully Connected layer on OpenCL. This function calls the following OpenCL kernels:
  *
- *  -# @ref CLIm2ColKernel (called when the input comes from a convolutional layer)
- *  -# @ref CLFullyConnectedLayerReshapeWeights (if @p are_weights_reshaped is set to false and transpose_weights is set to true ) (called once)
- *  -# @ref CLGEMMMatrixMultiplyKernel or @ref CLGEMMLowpMatrixMultiplyCore (if quantized asymmetric)
- *  -# @ref CLGEMMMatrixAccumulateBiasesKernel or @ref CLGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint (if quantized asymmetric) (if @p biases is not equal to nullptr)
+ *  -# @ref opencl::kernels::ClIm2ColKernel (called when the input comes from a convolutional layer)
+ *  -# @ref CLTranspose (if @p are_weights_reshaped is set to false and transpose_weights is set to true ) (called once)
+ *  -# @ref opencl::ClGemm or @ref CLGEMMLowpMatrixMultiplyCore (if quantized asymmetric)
  *
  * @note  The fully connected layer accepts "weights" tensors only with 2 dimensions.
  */
@@ -76,7 +44,9 @@ class CLFullyConnectedLayer : public IFunction
 {
 public:
     /** Constructor */
-    CLFullyConnectedLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    CLFullyConnectedLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr, IWeightsManager *weights_manager = nullptr);
+    /** Default destructor */
+    ~CLFullyConnectedLayer();
     /** Prevent instances of this class from being copied (As this class contains pointers) */
     CLFullyConnectedLayer(const CLFullyConnectedLayer &) = delete;
     /** Default move constructor */
@@ -87,33 +57,42 @@ public:
     CLFullyConnectedLayer &operator=(CLFullyConnectedLayer &&) = default;
     /** Set the input and output tensors.
      *
-     * @param[in]  input   Source tensor. Data type supported: QASYMM8/F16/F32.
-     * @param[in]  weights Weights tensor. The weights must be 2 dimensional.
-     *                     If this function is called after a Convolution Layer, the (transposed) weights will have as many rows as the product of the first 3 input's dimensions.
-     *                     If it is called after another FullyConnected Layer, the (transposed) weights will have as many rows as the input's first dimension.
-     *                     Data type supported: Same as @p input.
-     * @param[in]  biases  Bias tensor. Can be nullptr. Data type supported:Same as @p input.
-     * @param[out] output  Destination tensor. Its shape should be equal to the output of a matrix multiplication between:
-     *                     - The output of im2col on the input and the (transposed) 2D weights, if the function is called after a Convolution Layer
-     *                     - The input tensor and the (transposed) 2D weights, if the function is called after another FullyConnected Layer.
-     *                     Data type supported: Same as @p input.
-     * @param[in]  fc_info (Optional) Fully connected layer additional info
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src0           |src1               |src2   |dst            |
+     * |:--------------|:------------------|:------|:--------------|
+     * |F16            |F16                |F16    |F16            |
+     * |F32            |F32                |F32    |F32            |
+     * |QASYMM8        |QASYMM8            |S32    |QASYMM8        |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED     |S32    |QASYMM8_SIGNED |
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  input           Source tensor. Data type supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
+     * @param[in]  weights         Weights tensor. The weights must be 2 dimensional.
+     *                             If this function is called after a Convolution Layer, the (transposed) weights will have as many rows as the product of the first 3 input's dimensions.
+     *                             If it is called after another FullyConnected Layer, the (transposed) weights will have as many rows as the input's first dimension.
+     *                             Data type supported: Same as @p input.
+     * @param[in]  biases          Bias tensor. Can be nullptr. Data type supported:Same as @p input.
+     * @param[out] output          Destination tensor. Its shape should be equal to the output of a matrix multiplication between:
+     *                             - The output of im2col on the input and the (transposed) 2D weights, if the function is called after a Convolution Layer
+     *                             - The input tensor and the (transposed) 2D weights, if the function is called after another FullyConnected Layer.
+     *                             Data type supported: Same as @p input.
+     * @param[in]  fc_info         (Optional) Fully connected layer additional info
+     */
+    void configure(const CLCompileContext &compile_context, const ICLTensor *input, const ICLTensor *weights, const ICLTensor *biases, ICLTensor *output,
+                   FullyConnectedLayerInfo fc_info = FullyConnectedLayerInfo());
+    /** Set the input and output tensors.
+     *
+     * Similar to @ref CLFullyConnectedLayer
      */
     void configure(const ICLTensor *input, const ICLTensor *weights, const ICLTensor *biases, ICLTensor *output,
                    FullyConnectedLayerInfo fc_info = FullyConnectedLayerInfo());
     /** Static function to check if given info will lead to a valid configuration of @ref CLFullyConnectedLayer
      *
-     * @param[in]  input   Source tensor info. Data type supported: QASYMM8/F16/F32.
-     * @param[in]  weights Weights tensor info. The weights must be 2 dimensional.
-     *                     If this function is called after a Convolution Layer, the (transposed) weights will have as many rows as the product of the first 3 input's dimensions.
-     *                     If it is called after another FullyConnected Layer, the (transposed) weights will have as many rows as the input's first dimension.
-     *                     Data type supported: Same as @p input.
-     * @param[in]  biases  Bias tensor info. Can be nullptr. Data type supported:Same as @p input.
-     * @param[out] output  Destination tensor info. Its shape should be equal to the output of a matrix multiplication between:
-     *                     - The output of im2col on the input and the (transposed) 2D weights, if the function is called after a Convolution Layer
-     *                     - The input tensor and the (transposed) 2D weights, if the function is called after another FullyConnected Layer.
-     *                     Data type supported: Same as @p input.
-     * @param[in]  fc_info (Optional) Fully connected layer additional info
+     * Similar to @ref CLFullyConnectedLayer
      *
      * @return a status
      */
@@ -125,29 +104,8 @@ public:
     void prepare() override;
 
 private:
-    void configure_fc_fc(const ICLTensor *input, const ICLTensor *weights, ICLTensor *output, bool retain_internal_weights);
-    void configure_conv_fc(const ICLTensor *input, const ICLTensor *weights, ICLTensor *output, bool retain_internal_weights);
-    void configure_mm(const ICLTensor *input, const ICLTensor *weights, ICLTensor *output, bool retain_internal_weights);
-
-    CLMemoryGroup                                       _memory_group;
-    CLConvertFullyConnectedWeights                      _convert_weights;
-    CLFlattenLayer                                      _flatten_layer;
-    CLFullyConnectedLayerReshapeWeights                 _reshape_weights_kernel;
-    CLGEMM                                              _mm_gemm;
-    CLGEMMLowpMatrixMultiplyCore                        _mm_gemmlowp;
-    CLGEMMLowpQuantizeDownInt32ToUint8ScaleByFixedPoint _gemmlowp_output_stage;
-    CLGEMMMatrixAccumulateBiasesKernel                  _accumulate_biases_kernel; // TODO(COMPMID-1889): Use CLGEMM to add bias in CLFullyConnectedLayer
-    CLTensor                                            _flatten_output;
-    CLTensor                                            _gemmlowp_output;
-    CLTensor                                            _converted_weights_output;
-    CLTensor                                            _reshape_weights_output;
-    bool                                                _are_weights_converted;
-    bool                                                _are_weights_reshaped;
-    bool                                                _is_fc_after_conv;
-    bool                                                _accumulate_biases;
-    bool                                                _is_quantized;
-    bool                                                _is_prepared;
-    const ICLTensor                                    *_original_weights;
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 };
-}
-#endif /* __ARM_COMPUTE_CLFULLYCONNECTEDLAYER_H__ */
+} // namespace arm_compute
+#endif /* ARM_COMPUTE_CLFULLYCONNECTEDLAYER_H */

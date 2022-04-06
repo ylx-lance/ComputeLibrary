@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019 ARM Limited.
+ * Copyright (c) 2019-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,19 +21,19 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NEON_CROP_RESIZE_H__
-#define __ARM_COMPUTE_NEON_CROP_RESIZE_H__
+#ifndef ARM_COMPUTE_NEON_CROP_RESIZE_H
+#define ARM_COMPUTE_NEON_CROP_RESIZE_H
 
-#include "arm_compute/core/NEON/kernels/NECropKernel.h"
 #include "arm_compute/runtime/NEON/functions/NEScale.h"
 
-#include <cstdint>
 #include <memory>
 
 namespace arm_compute
 {
 // Forward Declarations
+class Tensor;
 class ITensor;
+class NECropKernel;
 
 /** Function to perform cropping and resizing */
 class NECropResize : public IFunction
@@ -50,15 +50,23 @@ public:
     /** Allow instances of this class to be moved */
     NECropResize &operator=(NECropResize &&) = default;
     /** Default destructor */
-    virtual ~NECropResize() = default;
+    ~NECropResize();
 
     /** Configure kernel
+     *
+     * Valid data layouts:
+     * - NHWC
+     *
+     * Valid data type configurations:
+     * |src0     |src1     |src2   |dst      |
+     * |:--------|:--------|:------|:--------|
+     * |All      |F32      |F32    |F32      |
      *
      * @note Supported tensor rank: up to 4
      * @note Box indices may be outside of the bounds, in which case @p extrapolation_value is used.
      * @note Start and end indices of boxes are inclusive.
      *
-     * @param[in]  input               Source tensor containing N batches of 3D images to be cropped. Data type supported: U16/S16/U32/S32/F16/F32
+     * @param[in]  input               Source tensor containing N batches of 3D images to be cropped. Data type supported: U8/U16/S16/U32/S32/F16/F32
      * @param[in]  boxes               Tensor containing the boxes used to crop the images. Data type supported: F32
      * @param[in]  box_ind             One dimensional tensor containing the batch index of the 3D image in @p input that the corresponding
      *                                 box in @p boxes will be applied to. Data type supported: F32
@@ -76,7 +84,7 @@ public:
      * @note Box indices may be outside of the bounds, in which case @p extrapolation_value is used.
      * @note Start and end indices of boxes are inclusive.
      *
-     * @param[in] input               Source tensor containing N batches of 3D images to be cropped. Data type supported: U16/S16/U32/S32/F16/F32
+     * @param[in] input               Source tensor containing N batches of 3D images to be cropped. Data type supported: U8/U16/S16/U32/S32/F16/F32
      * @param[in] boxes               Tensor info for the tensor containing the boxes used to crop the images. Data type supported: F32
      * @param[in] box_ind             Tensor info for the one dimensional tensor containing the batch index of the 3D image in @p input
      *                                that the corresponding box in @p boxes will be applied to. Data type supported: F32
@@ -104,4 +112,4 @@ public:
     std::vector<std::unique_ptr<Tensor>>       _scaled_results;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_NEON_CROP_RESIZE_H__ */
+#endif /* ARM_COMPUTE_NEON_CROP_RESIZE_H */

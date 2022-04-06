@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2020 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -62,9 +62,8 @@ const auto PermuteVectors4 = framework::dataset::make("PermutationVector",
     PermutationVector(0U, 3U, 2U, 1U)
 });
 const auto PermuteVectors         = concat(PermuteVectors3, PermuteVectors4);
-const auto PermuteInputLayout     = framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC });
-const auto PermuteParametersSmall = concat(concat(datasets::Small2DShapes(), datasets::Small3DShapes()), datasets::Small4DShapes()) * PermuteInputLayout * PermuteVectors;
-const auto PermuteParametersLarge = datasets::Large4DShapes() * PermuteInputLayout * PermuteVectors;
+const auto PermuteParametersSmall = concat(concat(datasets::Small2DShapes(), datasets::Small3DShapes()), datasets::Small4DShapes()) * PermuteVectors;
+const auto PermuteParametersLarge = datasets::Large4DShapes() * PermuteVectors;
 } // namespace
 TEST_SUITE(CL)
 TEST_SUITE(Permute)
@@ -120,29 +119,6 @@ DATA_TEST_CASE(Validate, framework::DatasetMode::ALL, zip(zip(zip(
 }
 // clang-format on
 // *INDENT-ON*
-
-DATA_TEST_CASE(Configuration, framework::DatasetMode::ALL, combine(datasets::Small4DShapes(), framework::dataset::make("DataType", { DataType::S8, DataType::U8, DataType::S16, DataType::U16, DataType::U32, DataType::S32, DataType::F16, DataType::F32 })),
-               shape, data_type)
-{
-    // Define permutation vector
-    const PermutationVector perm(2U, 0U, 1U);
-
-    // Permute shapes
-    TensorShape output_shape = shape;
-    permute(output_shape, perm);
-
-    // Create tensors
-    CLTensor ref_src = create_tensor<CLTensor>(shape, data_type);
-    CLTensor dst     = create_tensor<CLTensor>(output_shape, data_type);
-
-    // Create and Configure function
-    CLPermute perm_func;
-    perm_func.configure(&ref_src, &dst, perm);
-
-    // Validate valid region
-    const ValidRegion valid_region = shape_to_valid_region(output_shape);
-    validate(dst.info()->valid_region(), valid_region);
-}
 
 #ifndef DOXYGEN_SKIP_THIS
 

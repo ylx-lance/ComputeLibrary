@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_GRAPH_INODEVISITOR_H__
-#define __ARM_COMPUTE_GRAPH_INODEVISITOR_H__
+#ifndef ARM_COMPUTE_GRAPH_INODEVISITOR_H
+#define ARM_COMPUTE_GRAPH_INODEVISITOR_H
 
 #include "arm_compute/graph/nodes/NodesFwd.h"
 
@@ -71,6 +71,11 @@ public:
      * @param[in] n Node to visit.
      */
     virtual void visit(DepthwiseConvolutionLayerNode &n) = 0;
+    /** Visit DequantizationLayerNode.
+     *
+     * @param[in] n Node to visit.
+     */
+    virtual void visit(DequantizationLayerNode &n) = 0;
     /** Visit DetectionOutputLayerNode.
      *
      * @param[in] n Node to visit.
@@ -101,6 +106,16 @@ public:
      * @param[in] n Node to visit.
      */
     virtual void visit(FusedConvolutionBatchNormalizationNode &n) = 0;
+    /** Visit FusedConvolutionBatchNormalizationWithPostOpsNode.
+     *
+     * @param[in] n Node to visit.
+     */
+    virtual void visit(FusedConvolutionBatchNormalizationWithPostOpsNode &n) = 0;
+    /** Visit FusedConvolutionWithPostOpNode.
+     *
+     * @param[in] n Node to visit.
+     */
+    virtual void visit(FusedConvolutionWithPostOpNode &n) = 0;
     /** Visit FusedDepthwiseConvolutionBatchNormalizationNode.
      *
      * @param[in] n Node to visit.
@@ -126,11 +141,21 @@ public:
      * @param[in] n Node to visit.
      */
     virtual void visit(PermuteLayerNode &n) = 0;
+    /** Visit PreluLayerNode.
+     *
+     * @param[in] n Node to visit.
+     */
+    virtual void visit(PReluLayerNode &n) = 0;
     /** Visit PoolingLayerNode.
      *
      * @param[in] n Node to visit.
      */
     virtual void visit(PoolingLayerNode &n) = 0;
+    /** Visit PrintLayerNode.
+     *
+     * @param[in] n Node to visit.
+     */
+    virtual void visit(PrintLayerNode &n) = 0;
     /** Visit PriorBoxLayerNode.
      *
      * @param[in] n Node to visit.
@@ -176,113 +201,43 @@ public:
 
 #ifndef DOXYGEN_SKIP_THIS
     // Inherited methods overridden
-    virtual void visit(INode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(ActivationLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(BatchNormalizationLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(ConcatenateLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(ConstNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(ConvolutionLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(DetectionOutputLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(DetectionPostProcessLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(DepthwiseConvolutionLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(EltwiseLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(FlattenLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(FullyConnectedLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(FusedConvolutionBatchNormalizationNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(FusedDepthwiseConvolutionBatchNormalizationNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(InputNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(NormalizationLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(OutputNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(PermuteLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(PoolingLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(PriorBoxLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(QuantizationLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(ReshapeLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(SoftmaxLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(SplitLayerNode &n) override
-    {
-        default_visit();
-    }
-    virtual void visit(StackLayerNode &n) override
-    {
-        default_visit();
-    }
+    virtual void visit(INode &n) override;
+    virtual void visit(ActivationLayerNode &n) override;
+    virtual void visit(BatchNormalizationLayerNode &n) override;
+    virtual void visit(ConcatenateLayerNode &n) override;
+    virtual void visit(ConstNode &n) override;
+    virtual void visit(ConvolutionLayerNode &n) override;
+    virtual void visit(DequantizationLayerNode &n) override;
+    virtual void visit(DetectionOutputLayerNode &n) override;
+    virtual void visit(DetectionPostProcessLayerNode &n) override;
+    virtual void visit(DepthwiseConvolutionLayerNode &n) override;
+    virtual void visit(EltwiseLayerNode &n) override;
+    virtual void visit(FlattenLayerNode &n) override;
+    virtual void visit(FullyConnectedLayerNode &n) override;
+    virtual void visit(FusedConvolutionBatchNormalizationNode &n) override;
+    virtual void visit(FusedConvolutionBatchNormalizationWithPostOpsNode &n) override;
+    virtual void visit(FusedConvolutionWithPostOpNode &n) override;
+    virtual void visit(FusedDepthwiseConvolutionBatchNormalizationNode &n) override;
+    virtual void visit(InputNode &n) override;
+    virtual void visit(NormalizationLayerNode &n) override;
+    virtual void visit(OutputNode &n) override;
+    virtual void visit(PermuteLayerNode &n) override;
+    virtual void visit(PoolingLayerNode &n) override;
+    virtual void visit(PReluLayerNode &n) override;
+    virtual void visit(PrintLayerNode &n) override;
+    virtual void visit(PriorBoxLayerNode &n) override;
+    virtual void visit(QuantizationLayerNode &n) override;
+    virtual void visit(ReshapeLayerNode &n) override;
+    virtual void visit(SoftmaxLayerNode &n) override;
+    virtual void visit(SplitLayerNode &n) override;
+    virtual void visit(StackLayerNode &n) override;
 #endif /* DOXYGEN_SKIP_THIS */
 
     /** Function to be overloaded by the client and implement default behavior for the
      *  non-overloaded visitors
      */
-    virtual void default_visit() = 0;
+    virtual void default_visit(INode &n) = 0;
 };
 } // namespace graph
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_GRAPH_INODEVISITOR_H__ */
+#endif /* ARM_COMPUTE_GRAPH_INODEVISITOR_H */

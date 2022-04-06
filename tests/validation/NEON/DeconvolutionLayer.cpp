@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -43,8 +43,8 @@ namespace validation
 {
 namespace
 {
-constexpr AbsoluteTolerance<float> tolerance_fp32(0.001f);  /**< Tolerance for floating point tests */
-constexpr AbsoluteTolerance<float> tolerance_qasymm8(1.0f); /**< Tolerance value for comparing reference's output against implementation's output for quantized data types */
+constexpr AbsoluteTolerance<float> tolerance_fp32(0.001f);    /**< Tolerance for floating point tests */
+constexpr AbsoluteTolerance<float> tolerance_quantized(1.0f); /**< Tolerance value for comparing reference's output against implementation's output for quantized data types */
 #ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
 const RelativeTolerance<half_float::half> tolerance_fp16(half_float::half(0.2f)); /**< Relative tolerance value for comparing reference's output against implementation's output for DataType::F16 */
 #endif                                                                            /* __ARM_FEATURE_FP16_VECTOR_ARITHMETIC*/
@@ -56,6 +56,19 @@ const auto data4x4 = datasets::SmallDeconvolutionShapes() * framework::dataset::
 const auto data3x3 = datasets::SmallDeconvolutionShapes() * framework::dataset::make("StrideX", 1, 4) * framework::dataset::make("StrideY", 1, 4) * framework::dataset::make("PadX", 0, 2)
                      * framework::dataset::make("PadY", 0, 2) * framework::dataset::make("NumKernels", { 3 });
 
+const auto data3x3_asymm = datasets::SmallDeconvolutionShapes() * framework::dataset::make("StrideX", 1, 2) * framework::dataset::make("StrideY", 1, 2) * framework::dataset::make("PadLeft", 0, 1)
+                           * framework::dataset::make("PadRight", 0, 1) * framework::dataset::make("PadTop", 0, 1) * framework::dataset::make("PadBottom", 0, 1) * framework::dataset::make("NumKernels", { 3 });
+
+const auto data9x9_small_asymm = framework::dataset::make("InputShape", TensorShape{ 10U, 10U, 1U, 1U }) *framework::dataset::make("StrideX", 2) *framework::dataset::make("StrideY",
+                                 2)
+                                 *framework::dataset::make("PadLeft", 3)
+                                 *framework::dataset::make("PadRight", 4) *framework::dataset::make("PadTop", 3) *framework::dataset::make("PadBottom", 4) *framework::dataset::make("NumKernels", { 1 });
+
+const auto data9x9_large_asymm = framework::dataset::make("InputShape", TensorShape{ 640U, 360U, 56U, 1U }) *framework::dataset::make("StrideX", 2) *framework::dataset::make("StrideY",
+                                 2)
+                                 *framework::dataset::make("PadLeft", 3)
+                                 *framework::dataset::make("PadRight", 4) *framework::dataset::make("PadTop", 3) *framework::dataset::make("PadBottom", 4) *framework::dataset::make("NumKernels", { 1 });
+
 const auto data3x3_precommit = datasets::SmallDeconvolutionShapes() * framework::dataset::make("StrideX", 1, 2) * framework::dataset::make("StrideY", 1, 2) * framework::dataset::make("PadX", 0, 2)
                                * framework::dataset::make("PadY", 0, 2) * framework::dataset::make("NumKernels", { 3 });
 
@@ -65,49 +78,23 @@ const auto data1x1 = datasets::SmallDeconvolutionShapes() * framework::dataset::
 const auto data_layouts_dataset = framework::dataset::make("DataLayout", { DataLayout::NCHW, DataLayout::NHWC });
 
 const auto add_bias_dataset = framework::dataset::make("AddBias", { true, false });
+
+const auto input_qinfo_dataset = framework::dataset::make("InputQInfo",
+{
+    QuantizationInfo(1.f / 255.f, 0),
+    QuantizationInfo(2.f, 0),
+});
+
+const auto output_qinfo_dataset = framework::dataset::make("OutputQInfo",
+{
+    QuantizationInfo(3.f / 255.f, 0),
+    QuantizationInfo(4.f, 0),
+});
+
 } // namespace
 
 TEST_SUITE(NEON)
 TEST_SUITE(DeconvolutionLayer)
-
-DATA_TEST_CASE(Configuration, framework::DatasetMode::ALL, (combine(datasets::SmallDeconvolutionShapes(), framework::dataset::make("DataType", DataType::F32))),
-               input_shape, data_type)
-{
-    // Create shapes
-    const unsigned int kernel_size_x = 3;
-    const unsigned int kernel_size_y = 3;
-    const unsigned int num_kernels   = 1;
-    const TensorShape  weights_shape(kernel_size_x, kernel_size_y, input_shape.z(), num_kernels);
-    const TensorShape  bias_shape(num_kernels);
-    auto               out_dim      = deconvolution_output_dimensions(input_shape.x(), input_shape.y(), kernel_size_x, kernel_size_y, 1, 1, 1, 1);
-    TensorShape        output_shape = compute_deconvolution_output_shape(out_dim, TensorInfo(input_shape, 1, data_type), TensorInfo(weights_shape, 1, data_type));
-
-    // Create tensors
-    Tensor src     = create_tensor<Tensor>(input_shape, data_type, 1);
-    Tensor weights = create_tensor<Tensor>(weights_shape, data_type, 1);
-    Tensor bias    = create_tensor<Tensor>(bias_shape, data_type, 1);
-    Tensor dst     = create_tensor<Tensor>(output_shape, data_type, 1);
-
-    ARM_COMPUTE_EXPECT(src.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(weights.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(bias.info()->is_resizable(), framework::LogLevel::ERRORS);
-    ARM_COMPUTE_EXPECT(dst.info()->is_resizable(), framework::LogLevel::ERRORS);
-
-    // Create and configure function
-    NEDeconvolutionLayer deconv;
-    deconv.configure(&src, &weights, &bias, &dst, PadStrideInfo(1, 1, 1, 1, DimensionRoundingType::CEIL));
-
-    // Validate valid region
-    const ValidRegion src_valid_region     = shape_to_valid_region(input_shape);
-    const ValidRegion weights_valid_region = shape_to_valid_region(weights_shape);
-    const ValidRegion bias_valid_region    = shape_to_valid_region(bias_shape);
-    const ValidRegion dst_valid_region     = shape_to_valid_region(output_shape);
-
-    validate(src.info()->valid_region(), src_valid_region);
-    validate(weights.info()->valid_region(), weights_valid_region);
-    validate(bias.info()->valid_region(), bias_valid_region);
-    validate(dst.info()->valid_region(), dst_valid_region);
-}
 
 // *INDENT-OFF*
 // clang-format off
@@ -163,6 +150,12 @@ template <typename T>
 using NEDeconvolutionLayerFixture3x3 = DeconvolutionValidationFixture<Tensor, Accessor, NEDeconvolutionLayer, T, 3, 3>;
 
 template <typename T>
+using NEDeconvolutionLayerAsymmFixture3x3 = DeconvolutionValidationAsymmFixture<Tensor, Accessor, NEDeconvolutionLayer, T, 3, 3>;
+
+template <typename T>
+using NEDeconvolutionLayerAsymmFixture9x9 = DeconvolutionValidationAsymmFixture<Tensor, Accessor, NEDeconvolutionLayer, T, 9, 9>;
+
+template <typename T>
 using NEDeconvolutionLayerFixture1x1 = DeconvolutionValidationFixture<Tensor, Accessor, NEDeconvolutionLayer, T, 1, 1>;
 
 TEST_SUITE(Float)
@@ -185,6 +178,14 @@ FIXTURE_DATA_TEST_CASE(RunSmall, NEDeconvolutionLayerFixture3x3<float>, framewor
     // Validate output
     validate(Accessor(_target), _reference, tolerance_fp32);
 }
+FIXTURE_DATA_TEST_CASE(RunAsymm, NEDeconvolutionLayerAsymmFixture3x3<float>, framework::DatasetMode::NIGHTLY, combine(combine(combine(data3x3_asymm, framework::dataset::make("DataType",
+                                                                                                                      DataType::F32)),
+                                                                                                                      data_layouts_dataset),
+                                                                                                                      add_bias_dataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_fp32);
+}
 FIXTURE_DATA_TEST_CASE(RunLarge, NEDeconvolutionLayerFixture3x3<float>, framework::DatasetMode::NIGHTLY, combine(combine(combine(data3x3, framework::dataset::make("DataType", DataType::F32)),
                                                                                                                  data_layouts_dataset),
                                                                                                                  add_bias_dataset))
@@ -202,6 +203,24 @@ FIXTURE_DATA_TEST_CASE(Run, NEDeconvolutionLayerFixture1x1<float>, framework::Da
     validate(Accessor(_target), _reference, tolerance_fp32);
 }
 TEST_SUITE_END() // W1x1
+TEST_SUITE(W9x9)
+FIXTURE_DATA_TEST_CASE(RunSmall, NEDeconvolutionLayerAsymmFixture9x9<float>, framework::DatasetMode::ALL, combine(combine(combine(data9x9_small_asymm, framework::dataset::make("DataType",
+                                                                                                                  DataType::F32)),
+                                                                                                                  framework::dataset::make("DataLayout", { DataLayout::NHWC })),
+                                                                                                                  framework::dataset::make("AddBias", { false })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_fp32);
+}
+FIXTURE_DATA_TEST_CASE(RunLarge, NEDeconvolutionLayerAsymmFixture9x9<float>, framework::DatasetMode::NIGHTLY, combine(combine(combine(data9x9_large_asymm, framework::dataset::make("DataType",
+                                                                                                                      DataType::F32)),
+                                                                                                                      framework::dataset::make("DataLayout", { DataLayout::NHWC })),
+                                                                                                                      framework::dataset::make("AddBias", { false })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_fp32);
+}
+TEST_SUITE_END() // W9x9
 TEST_SUITE_END() // FP32
 
 #ifdef __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
@@ -255,60 +274,215 @@ using NEDeconvolutionLayerQuantizedFixture3x3 = DeconvolutionValidationQuantized
 template <typename T>
 using NEDeconvolutionLayerQuantizedFixture1x1 = DeconvolutionValidationQuantizedFixture<Tensor, Accessor, NEDeconvolutionLayer, T, 1, 1>;
 
+template <typename T>
+using NEDeconvolutionLayerQuantizedPerChannelFixture4x4 = DeconvolutionValidationQuantizedPerChannelFixture<Tensor, Accessor, NEDeconvolutionLayer, T, int8_t, 4, 4>;
+
+template <typename T>
+using NEDeconvolutionLayerQuantizedPerChannelFixture3x3 = DeconvolutionValidationQuantizedPerChannelFixture<Tensor, Accessor, NEDeconvolutionLayer, T, int8_t, 3, 3>;
+
+template <typename T>
+using NEDeconvolutionLayerQuantizedPerChannelFixture1x1 = DeconvolutionValidationQuantizedPerChannelFixture<Tensor, Accessor, NEDeconvolutionLayer, T, int8_t, 1, 1>;
+
 TEST_SUITE(Quantized)
 TEST_SUITE(QASYMM8)
 
 TEST_SUITE(W4x4)
-FIXTURE_DATA_TEST_CASE(Run, NEDeconvolutionLayerQuantizedFixture4x4<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(combine(data4x4, framework::dataset::make("DataType",
+FIXTURE_DATA_TEST_CASE(Run, NEDeconvolutionLayerQuantizedFixture4x4<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(combine(combine(data4x4, framework::dataset::make("DataType",
                                                                                                                        DataType::QASYMM8)),
                                                                                                                        data_layouts_dataset),
-                                                                                                                       framework::dataset::make("QuantizationInfo", QuantizationInfo(2.f / 255.f, 10))),
+                                                                                                                       input_qinfo_dataset),
+                                                                                                                       output_qinfo_dataset),
                                                                                                                        add_bias_dataset))
 {
     // Validate output
-    validate(Accessor(_target), _reference, tolerance_qasymm8, tolerance_num);
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
 }
 TEST_SUITE_END() // W4x4
 
 TEST_SUITE(W3x3)
-FIXTURE_DATA_TEST_CASE(RunSmall, NEDeconvolutionLayerQuantizedFixture3x3<uint8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(combine(data3x3_precommit,
+FIXTURE_DATA_TEST_CASE(RunSmall, NEDeconvolutionLayerQuantizedFixture3x3<uint8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(combine(combine(data3x3_precommit,
                        framework::dataset::make("DataType",
                                                 DataType::QASYMM8)),
                        data_layouts_dataset),
-                       framework::dataset::make("QuantizationInfo", QuantizationInfo(2.f / 255.f, 10))),
+                       input_qinfo_dataset),
+                       output_qinfo_dataset),
                        add_bias_dataset))
 {
     // Validate output
-    validate(Accessor(_target), _reference, tolerance_qasymm8, tolerance_num);
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
 }
-FIXTURE_DATA_TEST_CASE(RunLarge, NEDeconvolutionLayerQuantizedFixture3x3<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(combine(data3x3, framework::dataset::make("DataType",
-                       DataType::QASYMM8)),
+FIXTURE_DATA_TEST_CASE(RunLarge, NEDeconvolutionLayerQuantizedFixture3x3<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(combine(combine(data3x3,
+                       framework::dataset::make("DataType",
+                                                DataType::QASYMM8)),
                        data_layouts_dataset),
-                       framework::dataset::make("QuantizationInfo", QuantizationInfo(2.f / 255.f, 10))),
+                       input_qinfo_dataset),
+                       output_qinfo_dataset),
                        add_bias_dataset))
 {
     // Validate output
-    validate(Accessor(_target), _reference, tolerance_qasymm8, tolerance_num);
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
 }
 TEST_SUITE_END() // W3x3
 
 TEST_SUITE(W1x1)
-FIXTURE_DATA_TEST_CASE(Run, NEDeconvolutionLayerQuantizedFixture1x1<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(combine(data1x1, framework::dataset::make("DataType",
+FIXTURE_DATA_TEST_CASE(Run, NEDeconvolutionLayerQuantizedFixture1x1<uint8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(combine(combine(data1x1, framework::dataset::make("DataType",
                                                                                                                        DataType::QASYMM8)),
                                                                                                                        data_layouts_dataset),
-                                                                                                                       framework::dataset::make("QuantizationInfo", QuantizationInfo(2.f / 255.f, 10))),
+                                                                                                                       input_qinfo_dataset),
+                                                                                                                       output_qinfo_dataset),
                                                                                                                        add_bias_dataset))
 {
     // Validate output
-    validate(Accessor(_target), _reference, tolerance_qasymm8, tolerance_num);
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
 }
 TEST_SUITE_END() // W1x1
 
 TEST_SUITE_END() // QASYMM8
+
+TEST_SUITE(QASYMM8_SIGNED)
+
+TEST_SUITE(W4x4)
+FIXTURE_DATA_TEST_CASE(Run, NEDeconvolutionLayerQuantizedFixture4x4<int8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(combine(combine(data4x4, framework::dataset::make("DataType",
+                                                                                                                      DataType::QASYMM8_SIGNED)),
+                                                                                                                      data_layouts_dataset),
+                                                                                                                      input_qinfo_dataset),
+                                                                                                                      output_qinfo_dataset),
+                                                                                                                      add_bias_dataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
+}
+TEST_SUITE_END() // W4x4
+
+TEST_SUITE(W3x3)
+FIXTURE_DATA_TEST_CASE(RunSmall, NEDeconvolutionLayerQuantizedFixture3x3<int8_t>, framework::DatasetMode::PRECOMMIT, combine(combine(combine(combine(combine(data3x3_precommit,
+                       framework::dataset::make("DataType",
+                                                DataType::QASYMM8_SIGNED)),
+                       data_layouts_dataset),
+                       input_qinfo_dataset),
+                       output_qinfo_dataset),
+                       add_bias_dataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
+}
+FIXTURE_DATA_TEST_CASE(RunLarge, NEDeconvolutionLayerQuantizedFixture3x3<int8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(combine(combine(data3x3,
+                       framework::dataset::make("DataType",
+                                                DataType::QASYMM8_SIGNED)),
+                       data_layouts_dataset),
+                       input_qinfo_dataset),
+                       output_qinfo_dataset),
+                       add_bias_dataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
+}
+TEST_SUITE_END() // W3x3
+
+TEST_SUITE(W1x1)
+FIXTURE_DATA_TEST_CASE(Run, NEDeconvolutionLayerQuantizedFixture1x1<int8_t>, framework::DatasetMode::NIGHTLY, combine(combine(combine(combine(combine(data1x1,
+                                                                                                                      framework::dataset::make("DataType",
+                                                                                                                              DataType::QASYMM8_SIGNED)),
+                                                                                                                      data_layouts_dataset),
+                                                                                                                      input_qinfo_dataset),
+                                                                                                                      output_qinfo_dataset),
+                                                                                                                      add_bias_dataset))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
+}
+TEST_SUITE_END() // W1x1
+
+TEST_SUITE_END() // QASYMM8_SIGNED
+
+const auto input_qinfo_per_channel_dataset         = framework::dataset::make("InputQuantizationInfo", { QuantizationInfo(1.f / 255.f, 10) });
+const auto output_qinfo_per_channel_dataset        = framework::dataset::make("OutputQuantizationInfo", { QuantizationInfo(3.f / 255.f, 0) });
+const auto input_signed_qinfo_per_channel_dataset  = framework::dataset::make("InputQuantizationInfo", { QuantizationInfo(1.f / 255.f, -10) });
+const auto output_signed_qinfo_per_channel_dataset = framework::dataset::make("OutputQuantizationInfo", { QuantizationInfo(3.f / 255.f, 10) });
+
+TEST_SUITE(QSYMM8_PER_CHANNEL)
+
+TEST_SUITE(W4x4)
+FIXTURE_DATA_TEST_CASE(Run, NEDeconvolutionLayerQuantizedPerChannelFixture4x4<uint8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(combine(combine(data4x4,
+                       framework::dataset::make("DataType", DataType::QASYMM8)),
+                       data_layouts_dataset),
+                       input_qinfo_per_channel_dataset),
+                       output_qinfo_per_channel_dataset),
+                       add_bias_dataset),
+                       framework::dataset::make("WeightsDataType", { DataType::QSYMM8_PER_CHANNEL })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
+}
+FIXTURE_DATA_TEST_CASE(RunSigned, NEDeconvolutionLayerQuantizedPerChannelFixture4x4<int8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(combine(combine(data4x4,
+                       framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
+                       data_layouts_dataset),
+                       input_signed_qinfo_per_channel_dataset),
+                       output_signed_qinfo_per_channel_dataset),
+                       add_bias_dataset),
+                       framework::dataset::make("WeightsDataType", { DataType::QSYMM8_PER_CHANNEL })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
+}
+TEST_SUITE_END() // W4x4
+
+TEST_SUITE(W3x3)
+FIXTURE_DATA_TEST_CASE(Run, NEDeconvolutionLayerQuantizedPerChannelFixture3x3<uint8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(combine(combine(data3x3,
+                       framework::dataset::make("DataType", DataType::QASYMM8)),
+                       data_layouts_dataset),
+                       input_qinfo_per_channel_dataset),
+                       output_qinfo_per_channel_dataset),
+                       add_bias_dataset),
+                       framework::dataset::make("WeightsDataType", { DataType::QSYMM8_PER_CHANNEL })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
+}
+FIXTURE_DATA_TEST_CASE(RunSigned, NEDeconvolutionLayerQuantizedPerChannelFixture3x3<int8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(combine(combine(data3x3,
+                       framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
+                       data_layouts_dataset),
+                       input_signed_qinfo_per_channel_dataset),
+                       output_signed_qinfo_per_channel_dataset),
+                       add_bias_dataset),
+                       framework::dataset::make("WeightsDataType", { DataType::QSYMM8_PER_CHANNEL })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
+}
+TEST_SUITE_END() // W3x3
+
+TEST_SUITE(W1x1)
+FIXTURE_DATA_TEST_CASE(Run, NEDeconvolutionLayerQuantizedPerChannelFixture1x1<uint8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(combine(combine(data1x1,
+                       framework::dataset::make("DataType", DataType::QASYMM8)),
+                       data_layouts_dataset),
+                       input_qinfo_per_channel_dataset),
+                       output_qinfo_per_channel_dataset),
+                       add_bias_dataset),
+                       framework::dataset::make("WeightsDataType", { DataType::QSYMM8_PER_CHANNEL })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
+}
+FIXTURE_DATA_TEST_CASE(RunSigned, NEDeconvolutionLayerQuantizedPerChannelFixture1x1<int8_t>, framework::DatasetMode::ALL, combine(combine(combine(combine(combine(combine(data1x1,
+                       framework::dataset::make("DataType", DataType::QASYMM8_SIGNED)),
+                       data_layouts_dataset),
+                       input_signed_qinfo_per_channel_dataset),
+                       output_signed_qinfo_per_channel_dataset),
+                       add_bias_dataset),
+                       framework::dataset::make("WeightsDataType", { DataType::QSYMM8_PER_CHANNEL })))
+{
+    // Validate output
+    validate(Accessor(_target), _reference, tolerance_quantized, tolerance_num);
+}
+TEST_SUITE_END() // W1x1
+
+TEST_SUITE_END() // QSYMM8_PER_CHANNEL
+
 TEST_SUITE_END() // Quantized
 
 TEST_SUITE_END() // DeconvolutionLayer
-TEST_SUITE_END() // NEON
+TEST_SUITE_END() // Neon
 } // namespace validation
 } // namespace test
 } // namespace arm_compute

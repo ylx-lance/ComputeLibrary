@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2019 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_TEST_TENSOR_LIBRARY_H__
-#define __ARM_COMPUTE_TEST_TENSOR_LIBRARY_H__
+#ifndef ARM_COMPUTE_TEST_TENSOR_LIBRARY_H
+#define ARM_COMPUTE_TEST_TENSOR_LIBRARY_H
 
 #include "arm_compute/core/Coordinates.h"
 #include "arm_compute/core/Error.h"
@@ -31,12 +31,12 @@
 #include "arm_compute/core/TensorShape.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/core/Window.h"
-#include "arm_compute/core/utils/misc/Random.h"
-#include "libnpy/npy.hpp"
+#include "support/Random.h"
 #include "tests/RawTensor.h"
 #include "tests/TensorCache.h"
 #include "tests/Utils.h"
 #include "tests/framework/Exceptions.h"
+#include "utils/Utils.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -213,6 +213,19 @@ public:
     /** Fills the specified @p raw tensor with random values drawn from @p
      * distribution.
      *
+     * @param[in, out] vec          To be filled vector.
+     * @param[in]      distribution Distribution used to fill the tensor.
+     * @param[in]      seed_offset  The offset will be added to the global seed before initialising the random generator.
+     *
+     * @note The @p distribution has to provide operator(Generator &) which
+     *       will be used to draw samples.
+     */
+    template <typename T, typename D>
+    void fill(std::vector<T> &vec, D &&distribution, std::random_device::result_type seed_offset) const;
+
+    /** Fills the specified @p raw tensor with random values drawn from @p
+     * distribution.
+     *
      * @param[in, out] raw          To be filled raw.
      * @param[in]      distribution Distribution used to fill the tensor.
      * @param[in]      seed_offset  The offset will be added to the global seed before initialising the random generator.
@@ -380,6 +393,19 @@ public:
     template <typename T, typename D>
     void fill_tensor_value(T &&tensor, D value) const;
 
+    /** Fill a tensor with a given vector with static values.
+     *
+     * @param[in, out] tensor To be filled tensor.
+     * @param[in]      values A vector containing values
+     *
+     * To cope with various size tensors, the vector size doens't have to be
+     * the same as tensor's size. If the size of the tensor is larger than the vector,
+     * the iterator the vector will keep iterating and wrap around. If the vector is
+     * larger, values located after the required size won't be used.
+     */
+    template <typename T, typename DataType>
+    void fill_static_values(T &&tensor, const std::vector<DataType> &values) const;
+
 private:
     // Function prototype to convert between image formats.
     using Converter = void (*)(const RawTensor &src, RawTensor &dst);
@@ -387,6 +413,9 @@ private:
     using Extractor = void (*)(const RawTensor &src, RawTensor &dst);
     // Function prototype to load an image file.
     using Loader = RawTensor (*)(const std::string &path);
+    // Function type to generate a number to fill tensors.
+    template <typename ResultType>
+    using GeneratorFunctionType = std::function<ResultType(void)>;
 
     const Converter &get_converter(Format src, Format dst) const;
     const Converter &get_converter(DataType src, Format dst) const;
@@ -431,6 +460,14 @@ private:
      */
     const RawTensor &find_or_create_raw_tensor(const std::string &name, Format format, Channel channel) const;
 
+    /** Fill a tensor with a value generator function.
+     *
+     * @param[in, out] tensor         To be filled tensor.
+     * @param[in]      generate_value A function that generates values.
+     */
+    template <typename T, typename ResultType>
+    void fill_with_generator(T &&tensor, const GeneratorFunctionType<ResultType> &generate_value) const;
+
     mutable TensorCache             _cache{};
     mutable arm_compute::Mutex      _format_lock{};
     mutable arm_compute::Mutex      _channel_lock{};
@@ -453,6 +490,16 @@ inline std::vector<std::pair<T, T>> convert_range_pair(const std::vector<AssetsL
     });
     return converted;
 }
+
+/* Read npy header and check the payload is suitable for the specified type and shape
+ *
+ * @param[in] stream         ifstream of the npy file
+ * @param[in] expect_typestr Expected typestr
+ * @param[in] expect_shape   Shape of tensor expected to receive the data
+ *
+ * @note Advances stream to the beginning of the data payload
+ */
+void validate_npy_header(std::ifstream &stream, const std::string &expect_typestr, const TensorShape &expect_shape);
 } // namespace detail
 
 template <typename T, typename D>
@@ -467,7 +514,7 @@ void AssetsLibrary::fill_borders_with_garbage(T &&tensor, D &&distribution, std:
         window.set(1, Window::Dimension(-padding_size.top, tensor.shape()[1] + padding_size.bottom, 1));
     }
 
-    std::mt19937 gen(_seed);
+    std::mt19937 gen(_seed + seed_offset);
 
     execute_window_loop(window, [&](const Coordinates & id)
     {
@@ -487,13 +534,15 @@ void AssetsLibrary::fill_borders_with_garbage(T &&tensor, D &&distribution, std:
 template <typename T, typename D>
 void AssetsLibrary::fill_boxes(T &&tensor, D &&distribution, std::random_device::result_type seed_offset) const
 {
-    using ResultType = typename std::remove_reference<D>::type::result_type;
-    std::mt19937 gen(_seed + seed_offset);
-    TensorShape  shape(tensor.shape());
-    const int    num_boxes = tensor.num_elements() / 4;
+    using DistributionType = typename std::remove_reference<D>::type;
+    using ResultType       = typename DistributionType::result_type;
+
+    std::mt19937   gen(_seed + seed_offset);
+    TensorShape    shape(tensor.shape());
+    const uint32_t num_boxes = tensor.num_elements() / 4;
     // Iterate over all elements
-    std::uniform_real_distribution<> size_dist(0.f, 1.f);
-    for(int element_idx = 0; element_idx < num_boxes * 4; element_idx += 4)
+    DistributionType size_dist{ ResultType(0.f), ResultType(1.f) };
+    for(uint32_t element_idx = 0; element_idx < num_boxes * 4; element_idx += 4)
     {
         const ResultType delta   = size_dist(gen);
         const ResultType epsilon = size_dist(gen);
@@ -519,12 +568,24 @@ void AssetsLibrary::fill_boxes(T &&tensor, D &&distribution, std::random_device:
 }
 
 template <typename T, typename D>
-void AssetsLibrary::fill(T &&tensor, D &&distribution, std::random_device::result_type seed_offset) const
+void AssetsLibrary::fill(std::vector<T> &vec, D &&distribution, std::random_device::result_type seed_offset) const
 {
+    ARM_COMPUTE_ERROR_ON_MSG(vec.empty(), "Vector must not be empty");
+
     using ResultType = typename std::remove_reference<D>::type::result_type;
 
     std::mt19937 gen(_seed + seed_offset);
+    for(size_t i = 0; i < vec.size(); ++i)
+    {
+        const ResultType value = distribution(gen);
 
+        vec[i] = value;
+    }
+}
+
+template <typename T, typename ResultType>
+void AssetsLibrary::fill_with_generator(T &&tensor, const GeneratorFunctionType<ResultType> &generate_value) const
+{
     const bool  is_nhwc = tensor.data_layout() == DataLayout::NHWC;
     TensorShape shape(tensor.shape());
 
@@ -535,7 +596,8 @@ void AssetsLibrary::fill(T &&tensor, D &&distribution, std::random_device::resul
     }
 
     // Iterate over all elements
-    for(int element_idx = 0; element_idx < tensor.num_elements(); ++element_idx)
+    const uint32_t num_elements = tensor.num_elements();
+    for(uint32_t element_idx = 0; element_idx < num_elements; ++element_idx)
     {
         Coordinates id = index2coord(shape, element_idx);
 
@@ -548,14 +610,48 @@ void AssetsLibrary::fill(T &&tensor, D &&distribution, std::random_device::resul
         // Iterate over all channels
         for(int channel = 0; channel < tensor.num_channels(); ++channel)
         {
-            const ResultType value        = distribution(gen);
+            const ResultType value        = generate_value();
             ResultType      &target_value = reinterpret_cast<ResultType *>(tensor(id))[channel];
 
             store_value_with_data_type(&target_value, value, tensor.data_type());
         }
     }
+}
 
+template <typename T, typename D>
+void AssetsLibrary::fill(T &&tensor, D &&distribution, std::random_device::result_type seed_offset) const
+{
+    using ResultType = typename std::remove_reference<D>::type::result_type;
+    std::mt19937 gen(_seed + seed_offset);
+
+    GeneratorFunctionType<ResultType> number_generator = [&]()
+    {
+        const ResultType value = distribution(gen);
+        return value;
+    };
+
+    fill_with_generator(tensor, number_generator);
     fill_borders_with_garbage(tensor, distribution, seed_offset);
+}
+
+template <typename T, typename DataType>
+void AssetsLibrary::fill_static_values(T &&tensor, const std::vector<DataType> &values) const
+{
+    auto                            it             = values.begin();
+    GeneratorFunctionType<DataType> get_next_value = [&]()
+    {
+        const DataType value = *it;
+        ++it;
+
+        if(it == values.end())
+        {
+            it = values.begin();
+        }
+
+        return value;
+    };
+
+    fill_with_generator(tensor, get_next_value);
 }
 
 template <typename D>
@@ -635,6 +731,8 @@ void AssetsLibrary::fill_tensor_uniform(T &&tensor, std::random_device::result_t
         }
         case DataType::S8:
         case DataType::QSYMM8:
+        case DataType::QSYMM8_PER_CHANNEL:
+        case DataType::QASYMM8_SIGNED:
         {
             std::uniform_int_distribution<int8_t> distribution_s8(std::numeric_limits<int8_t>::lowest(), std::numeric_limits<int8_t>::max());
             fill(tensor, distribution_s8, seed_offset);
@@ -677,10 +775,17 @@ void AssetsLibrary::fill_tensor_uniform(T &&tensor, std::random_device::result_t
             fill(tensor, distribution_s64, seed_offset);
             break;
         }
+        case DataType::BFLOAT16:
+        {
+            // It doesn't make sense to check [-inf, inf], so hard code it to a big number
+            arm_compute::utils::uniform_real_distribution_16bit<bfloat16> distribution_bf16{ -1000.f, 1000.f };
+            fill(tensor, distribution_bf16, seed_offset);
+            break;
+        }
         case DataType::F16:
         {
             // It doesn't make sense to check [-inf, inf], so hard code it to a big number
-            std::uniform_real_distribution<float> distribution_f16(-100.f, 100.f);
+            arm_compute::utils::uniform_real_distribution_16bit<half> distribution_f16{ -100.f, 100.f };
             fill(tensor, distribution_f16, seed_offset);
             break;
         }
@@ -775,11 +880,19 @@ void AssetsLibrary::fill_tensor_uniform_ranged(T                                
             fill(tensor, distribution_s32, seed_offset);
             break;
         }
+        case DataType::BFLOAT16:
+        {
+            // It doesn't make sense to check [-inf, inf], so hard code it to a big number
+            const auto                          converted_pairs = detail::convert_range_pair<bfloat16>(excluded_range_pairs);
+            RangedUniformDistribution<bfloat16> distribution_bf16(bfloat16(-1000.f), bfloat16(1000.f), converted_pairs);
+            fill(tensor, distribution_bf16, seed_offset);
+            break;
+        }
         case DataType::F16:
         {
             // It doesn't make sense to check [-inf, inf], so hard code it to a big number
-            const auto                       converted_pairs = detail::convert_range_pair<float>(excluded_range_pairs);
-            RangedUniformDistribution<float> distribution_f16(-100.f, 100.f, converted_pairs);
+            const auto                      converted_pairs = detail::convert_range_pair<half>(excluded_range_pairs);
+            RangedUniformDistribution<half> distribution_f16(half(-100.f), half(100.f), converted_pairs);
             fill(tensor, distribution_f16, seed_offset);
             break;
         }
@@ -811,6 +924,7 @@ void AssetsLibrary::fill_tensor_uniform(T &&tensor, std::random_device::result_t
         }
         case DataType::S8:
         case DataType::QSYMM8:
+        case DataType::QASYMM8_SIGNED:
         {
             ARM_COMPUTE_ERROR_ON(!(std::is_same<int8_t, D>::value));
             std::uniform_int_distribution<int8_t> distribution_s8(low, high);
@@ -860,9 +974,15 @@ void AssetsLibrary::fill_tensor_uniform(T &&tensor, std::random_device::result_t
             fill(tensor, distribution_s64, seed_offset);
             break;
         }
+        case DataType::BFLOAT16:
+        {
+            arm_compute::utils::uniform_real_distribution_16bit<bfloat16> distribution_bf16{ float(low), float(high) };
+            fill(tensor, distribution_bf16, seed_offset);
+            break;
+        }
         case DataType::F16:
         {
-            std::uniform_real_distribution<float> distribution_f16(low, high);
+            arm_compute::utils::uniform_real_distribution_16bit<half> distribution_f16{ float(low), float(high) };
             fill(tensor, distribution_f16, seed_offset);
             break;
         }
@@ -902,41 +1022,14 @@ void AssetsLibrary::fill_layer_data(T &&tensor, std::string name) const
 #endif /* _WIN32 */
     const std::string path = _library_path + path_separator + name;
 
-    std::vector<unsigned long> shape;
-
     // Open file
     std::ifstream stream(path, std::ios::in | std::ios::binary);
     if(!stream.good())
     {
         throw framework::FileNotFound("Could not load npy file: " + path);
     }
-    std::string header = npy::read_header(stream);
 
-    // Parse header
-    bool        fortran_order = false;
-    std::string typestr;
-    npy::parse_header(header, typestr, fortran_order, shape);
-
-    // Check if the typestring matches the given one
-    std::string expect_typestr = get_typestring(tensor.data_type());
-    ARM_COMPUTE_ERROR_ON_MSG(typestr != expect_typestr, "Typestrings mismatch");
-
-    // Validate tensor shape
-    ARM_COMPUTE_ERROR_ON_MSG(shape.size() != tensor.shape().num_dimensions(), "Tensor ranks mismatch");
-    if(fortran_order)
-    {
-        for(size_t i = 0; i < shape.size(); ++i)
-        {
-            ARM_COMPUTE_ERROR_ON_MSG(tensor.shape()[i] != shape[i], "Tensor dimensions mismatch");
-        }
-    }
-    else
-    {
-        for(size_t i = 0; i < shape.size(); ++i)
-        {
-            ARM_COMPUTE_ERROR_ON_MSG(tensor.shape()[i] != shape[shape.size() - i - 1], "Tensor dimensions mismatch");
-        }
-    }
+    validate_npy_header(stream, tensor.data_type(), tensor.shape());
 
     // Read data
     if(tensor.padding().empty())
@@ -964,4 +1057,4 @@ void AssetsLibrary::fill_tensor_value(T &&tensor, D value) const
 }
 } // namespace test
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_TEST_TENSOR_LIBRARY_H__ */
+#endif /* ARM_COMPUTE_TEST_TENSOR_LIBRARY_H */

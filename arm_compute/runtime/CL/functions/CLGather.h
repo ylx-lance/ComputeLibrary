@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018-2019 ARM Limited.
+ * Copyright (c) 2018-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -22,14 +22,17 @@
  * SOFTWARE.
  */
 
-#ifndef __ARM_COMPUTE_CLGATHER_H__
-#define __ARM_COMPUTE_CLGATHER_H__
+#ifndef ARM_COMPUTE_CLGATHER_H
+#define ARM_COMPUTE_CLGATHER_H
 
+#include "arm_compute/core/Error.h"
 #include "arm_compute/runtime/CL/ICLSimpleFunction.h"
 
 namespace arm_compute
 {
+class CLCompileContext;
 class ICLTensor;
+class ITensorInfo;
 
 /** Basic function to run @ref CLGatherKernel */
 class CLGather : public ICLSimpleFunction
@@ -37,16 +40,33 @@ class CLGather : public ICLSimpleFunction
 public:
     /** Initialise the kernel's inputs and outputs
      *
-     * @param[in]  input   Source tensor. Supported tensor rank: up to 4. Data type supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32
+     * Valid data layouts:
+     * - All
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |All            |All            |
+     *
+     * @param[in]  input   Source tensor. Supported tensor rank: up to 4. Data type supported: All.
      * @param[in]  indices Indices tensor. Supported tensor rank: up to 1. Must be one of the following types: U32/S32. Each value must be in range [0, input.shape[@p axis])
      * @param[out] output  Destination tensor. Data type supported: Same as @p input
      * @param[in]  axis    (Optional) The axis in @p input to gather @p indices from. Defaults to 0
      */
     void configure(const ICLTensor *input, const ICLTensor *indices, ICLTensor *output, int axis = 0);
+    /** Initialise the kernel's inputs and outputs
+     *
+     * @param[in]  compile_context The compile context to be used.
+     * @param[in]  input           Source tensor. Supported tensor rank: up to 4. Data type supported: All.
+     * @param[in]  indices         Indices tensor. Supported tensor rank: up to 1. Must be one of the following types: U32/S32. Each value must be in range [0, input.shape[@p axis])
+     * @param[out] output          Destination tensor. Data type supported: Same as @p input
+     * @param[in]  axis            (Optional) The axis in @p input to gather @p indices from. Defaults to 0
+     */
+    void configure(const CLCompileContext &compile_context, const ICLTensor *input, const ICLTensor *indices, ICLTensor *output, int axis = 0);
 
     /** Static function to check if given info will lead to a valid configuration of @ref CLGatherKernel
      *
-     * @param[in] input   Source tensor info. Supported tensor rank: up to 4. Data type supported: U8/S8/QASYMM8/U16/S16/U32/S32/F16/F32
+     * @param[in] input   Source tensor info. Supported tensor rank: up to 4. Data type supported: All.
      * @param[in] indices Indices tensor info. Supported tensor rank: up to 4. Must be one of the following types: U32/S32. Each value must be in range [0, input.shape[@p axis])
      * @param[in] output  Destination tensor info. Data type supported: Same as @p input
      * @param[in] axis    (Optional) The axis in @p input to gather @p indices from. Defaults to 0
@@ -56,4 +76,4 @@ public:
     static Status validate(const ITensorInfo *input, const ITensorInfo *indices, const ITensorInfo *output, int axis = 0);
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLGATHER_H__ */
+#endif /* ARM_COMPUTE_CLGATHER_H */

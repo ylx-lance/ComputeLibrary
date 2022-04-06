@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,42 +21,86 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_CLPOOLINGLAYER_H__
-#define __ARM_COMPUTE_CLPOOLINGLAYER_H__
+#ifndef ARM_COMPUTE_CLPOOLINGLAYER_H
+#define ARM_COMPUTE_CLPOOLINGLAYER_H
 
-#include "arm_compute/runtime/CL/ICLSimpleFunction.h"
+#include "arm_compute/runtime/IFunction.h"
 
-#include "arm_compute/core/Error.h"
 #include "arm_compute/core/Types.h"
+
+#include <memory>
 
 namespace arm_compute
 {
+class CLCompileContext;
 class ICLTensor;
+class ITensorInfo;
 
-/** Basic function to simulate a pooling layer with the specified pooling operation. This function calls the following OpenCL kernels:
- *
- * -# @ref CLFillBorderKernel (executed if padding size is different from zero)
- * -# @ref CLPoolingLayerKernel
- */
-class CLPoolingLayer : public ICLSimpleFunction
+/** Basic function to run  @ref opencl::ClPool2d */
+class CLPoolingLayer : public IFunction
 {
 public:
+    /** Default Constructor */
+    CLPoolingLayer();
+    /** Default Destructor */
+    ~CLPoolingLayer();
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    CLPoolingLayer(const CLPoolingLayer &) = delete;
+    /** Default move constructor */
+    CLPoolingLayer(CLPoolingLayer &&) = default;
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    CLPoolingLayer &operator=(const CLPoolingLayer &) = delete;
+    /** Default move assignment operator */
+    CLPoolingLayer &operator=(CLPoolingLayer &&) = default;
     /** Set the input and output tensors.
      *
-     * @param[in,out] input     Source tensor. (Written to only when padding != 0) Data types supported: QASYMM8/F16/F32.
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src            |dst            |
+     * |:--------------|:--------------|
+     * |QASYMM8        |QASYMM8        |
+     * |QASYMM8_SIGNED |QASYMM8_SIGNED |
+     * |F16            |F16            |
+     * |F32            |F32            |
+     *
+     * @note Source tensor is padded with -inf for MAX pooling and 0 otherwise
+     *       Cases where pooling region is completely outside input tensor are not supported
+     *
+     * @param[in,out] input     Source tensor. (Written to only when padding != 0) Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
      * @param[out]    output    Destination tensor. Data types supported: Same as @p input.
      * @param[in]     pool_info Contains pooling operation information described in @ref PoolingLayerInfo.
+     * @param[out]    indices   (optional) The indices of the maximal values. Data type supported: U32.
      */
-    void configure(ICLTensor *input, ICLTensor *output, const PoolingLayerInfo &pool_info);
+    void configure(ICLTensor *input, ICLTensor *output, const PoolingLayerInfo &pool_info, ICLTensor *indices = nullptr);
+    /** Set the input and output tensors.
+     *
+     * @param[in]     compile_context The compile context to be used.
+     * @param[in,out] input           Source tensor. (Written to only when padding != 0) Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
+     * @param[out]    output          Destination tensor. Data types supported: Same as @p input.
+     * @param[in]     pool_info       Contains pooling operation information described in @ref PoolingLayerInfo.
+     * @param[out]    indices         (optional) The indices of the maximal values. Data type supported: U32.
+     */
+    void configure(const CLCompileContext &compile_context, ICLTensor *input, ICLTensor *output, const PoolingLayerInfo &pool_info, ICLTensor *indices = nullptr);
     /** Static function to check if given info will lead to a valid configuration of @ref CLPoolingLayer
      *
-     * @param[in] input     Source tensor info. Data types supported: QASYMM8/F16/F32.
+     * @param[in] input     Source tensor info. Data types supported: QASYMM8/QASYMM8_SIGNED/F16/F32.
      * @param[in] output    Destination tensor info. Data types supported: Same as @p input.
      * @param[in] pool_info Contains pooling operation information described in @ref PoolingLayerInfo.
+     * @param[in] indices   (optional) The indices of the maximal values. Data type supported: U32.
      *
      * @return a status
      */
-    static Status validate(const ITensorInfo *input, const ITensorInfo *output, const PoolingLayerInfo &pool_info);
+    static Status validate(const ITensorInfo *input, const ITensorInfo *output, const PoolingLayerInfo &pool_info, const ITensorInfo *indices = nullptr);
+
+    // Inherited methods overridden:
+    void run() override;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> _impl;
 };
 } // namespace arm_compute
-#endif /* __ARM_COMPUTE_CLPOOLINGLAYER_H__ */
+#endif /* ARM_COMPUTE_CLPOOLINGLAYER_H */

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,8 +21,8 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_SUBTENSORINFO_H__
-#define __ARM_COMPUTE_SUBTENSORINFO_H__
+#ifndef ARM_COMPUTE_SUBTENSORINFO_H
+#define ARM_COMPUTE_SUBTENSORINFO_H
 
 #include "arm_compute/core/ITensorInfo.h"
 
@@ -31,7 +31,6 @@
 #include "arm_compute/core/Strides.h"
 #include "arm_compute/core/TensorInfo.h"
 #include "arm_compute/core/TensorShape.h"
-#include "arm_compute/core/Validate.h"
 
 #include <cstddef>
 #include <memory>
@@ -99,6 +98,7 @@ public:
         return *this;
     };
     ITensorInfo &set_tensor_shape(const TensorShape &shape) override;
+    ITensorInfo &set_tensor_dims_state(const TensorDimsState &state) override;
     ITensorInfo &set_quantization_info(const QuantizationInfo &quantization_info) override
     {
         ARM_COMPUTE_ERROR_ON(_parent == nullptr);
@@ -136,7 +136,7 @@ public:
         ARM_COMPUTE_ERROR_ON(_parent == nullptr);
         return _parent->offset_element_in_bytes(_coords);
     }
-    size_t offset_element_in_bytes(const Coordinates &pos) const override;
+    int32_t offset_element_in_bytes(const Coordinates &pos) const override;
     size_t element_size() const override
     {
         ARM_COMPUTE_ERROR_ON(_parent == nullptr);
@@ -155,6 +155,11 @@ public:
     {
         ARM_COMPUTE_ERROR_ON(_parent == nullptr);
         return _tensor_shape;
+    }
+    const TensorDimsState &tensor_dims_state() const override
+    {
+        ARM_COMPUTE_ERROR_ON(_parent == nullptr);
+        return _dims_state;
     }
     DataType data_type() const override
     {
@@ -186,10 +191,26 @@ public:
         ARM_COMPUTE_ERROR_ON(_parent == nullptr);
         return _parent->is_resizable();
     }
+    bool is_dynamic() const override
+    {
+        ARM_COMPUTE_ERROR_ON(_parent == nullptr);
+        return _parent->is_dynamic();
+    }
+    bool are_values_constant() const override
+    {
+        ARM_COMPUTE_ERROR_ON(_parent == nullptr);
+        return _parent->are_values_constant();
+    }
     ITensorInfo &set_is_resizable(bool is_resizable) override
     {
         ARM_COMPUTE_ERROR_ON(_parent == nullptr);
         _parent->set_is_resizable(is_resizable);
+        return *this;
+    }
+    ITensorInfo &set_are_values_constant(bool are_values_constant) override
+    {
+        ARM_COMPUTE_ERROR_ON(_parent == nullptr);
+        _parent->set_are_values_constant(are_values_constant);
         return *this;
     }
     ValidRegion valid_region() const override
@@ -218,11 +239,12 @@ public:
     }
 
 private:
-    ITensorInfo *_parent;
-    TensorShape  _tensor_shape;
-    Coordinates  _coords;
-    ValidRegion  _valid_region;
-    bool         _extend_parent;
+    ITensorInfo    *_parent;
+    TensorShape     _tensor_shape;
+    TensorDimsState _dims_state;
+    Coordinates     _coords;
+    ValidRegion     _valid_region;
+    bool            _extend_parent;
 };
-}
-#endif /*__ARM_COMPUTE_SUBTENSORINFO_H__ */
+} // namespace arm_compute
+#endif /*ARM_COMPUTE_SUBTENSORINFO_H */

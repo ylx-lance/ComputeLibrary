@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017-2018 ARM Limited.
+ * Copyright (c) 2017-2021 Arm Limited.
  *
  * SPDX-License-Identifier: MIT
  *
@@ -21,17 +21,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  */
-#ifndef __ARM_COMPUTE_NENORMALIZATIONLAYER_H__
-#define __ARM_COMPUTE_NENORMALIZATIONLAYER_H__
+#ifndef ARM_COMPUTE_NENORMALIZATIONLAYER_H
+#define ARM_COMPUTE_NENORMALIZATIONLAYER_H
 
 #include "arm_compute/runtime/IFunction.h"
 
-#include "arm_compute/core/NEON/kernels/NEFillBorderKernel.h"
-#include "arm_compute/core/NEON/kernels/NENormalizationLayerKernel.h"
-#include "arm_compute/core/NEON/kernels/NEPixelWiseMultiplicationKernel.h"
 #include "arm_compute/core/Types.h"
 #include "arm_compute/runtime/IMemoryManager.h"
 #include "arm_compute/runtime/MemoryGroup.h"
+#include "arm_compute/runtime/NEON/functions/NEPixelWiseMultiplication.h"
 #include "arm_compute/runtime/Tensor.h"
 
 #include <memory>
@@ -39,10 +37,11 @@
 namespace arm_compute
 {
 class ITensor;
+class NENormalizationLayerKernel;
 
-/** Basic function to compute a normalization layer. This function calls the following NEON kernels:
+/** Basic function to compute a normalization layer. This function calls the following kernels:
  *
- * -# @ref NEPixelWiseMultiplicationKernel
+ * -# @ref NEPixelWiseMultiplication
  * -# @ref NEFillBorderKernel
  * -# @ref NENormalizationLayerKernel
  *
@@ -52,7 +51,27 @@ class NENormalizationLayer : public IFunction
 public:
     /** Default constructor */
     NENormalizationLayer(std::shared_ptr<IMemoryManager> memory_manager = nullptr);
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NENormalizationLayer(const NENormalizationLayer &) = delete;
+    /** Prevent instances of this class from being copied (As this class contains pointers) */
+    NENormalizationLayer &operator=(const NENormalizationLayer &) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NENormalizationLayer(NENormalizationLayer &&) = delete;
+    /** Prevent instances of this class from being moved (As this class contains non movable objects) */
+    NENormalizationLayer &operator=(NENormalizationLayer &&) = delete;
+    /** Default destructor */
+    ~NENormalizationLayer();
     /** Set the input and output tensors.
+     *
+     * Valid data layouts:
+     * - NHWC
+     * - NCHW
+     *
+     * Valid data type configurations:
+     * |src      |dst       |
+     * |:--------|:---------|
+     * |F32      |F32       |
+     * |F16      |F16       |
      *
      * @param[in]  input     Source tensor. 3 lower dims represent a single input with dimensions [width, height, IFM],
      *                       and an optional 4th dimension for batch of inputs. Data type supported: F16/F32. Data layouts supported: NCHW/NHWC.
@@ -75,11 +94,10 @@ public:
     void run() override;
 
 private:
-    MemoryGroup                     _memory_group;    /**< Function memory group */
-    NENormalizationLayerKernel      _norm_kernel;     /**< Normalization layer kernel */
-    NEPixelWiseMultiplicationKernel _multiply_kernel; /**< Pixel multiplication kernel */
-    NEFillBorderKernel              _border_handler;  /**< Kernel to handle  borders */
-    Tensor                          _input_squared;   /**< The intermediate buffer which stores results of squaring input */
+    MemoryGroup                                 _memory_group;  /**< Function memory group */
+    std::unique_ptr<NENormalizationLayerKernel> _norm_kernel;   /**< Normalization layer kernel */
+    NEPixelWiseMultiplication                   _multiply_f;    /**< Pixel multiplication function */
+    Tensor                                      _input_squared; /**< The intermediate buffer which stores results of squaring input */
 };
 }
-#endif /* __ARM_COMPUTE_NENORMALIZATIONLAYER_H__ */
+#endif /* ARM_COMPUTE_NENORMALIZATIONLAYER_H */
